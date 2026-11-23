@@ -1,0 +1,17 @@
+.venv/
+.venv-*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.pmm/
+*.journal
+*.jsonl
+*.env
+.env*
+bybitAPIkeys.txt
+.research/
+.deploy/

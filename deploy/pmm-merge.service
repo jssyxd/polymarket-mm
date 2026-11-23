@@ -1,0 +1,10 @@
+[Unit]
+Description=Merge complete Polymarket outcome pairs into pUSD
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pmm
+EnvironmentFile=/etc/pmm-mm/pmm.env
+Environment=PYTHONPATH=/opt/pmm/src
+ExecStart=/opt/pmm/.venv-merge/bin/python /opt/pmm/tools/merge_pairs.py

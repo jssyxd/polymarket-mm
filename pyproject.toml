@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polymarket-mm"
+version = "0.1.0"
+description = "Polymarket binary market maker: paired-bid quoting, risk gates, journaled execution"
+readme = "deploy/README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "py_clob_client_v2==1.2.2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

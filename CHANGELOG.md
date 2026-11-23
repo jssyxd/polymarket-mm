@@ -1,0 +1,96 @@
+# CHANGELOG
+
+本文件记录**实盘过程中真实踩到的坑**：症状、根因、修复，以及下次判断的依据。只写已经验证过的事实。
+
+---
+
+## [0.3.0] — 2026-11-23 · 实盘上线
+
+### 新增
+
+- 资金守卫：`Runner._place` 每轮读交易所真实可用抵押品，买不起的腿丢弃并记 `order_skipped / insufficient_collateral`。
+- 交易所持仓口径：`Runner._inventory` 实盘走 Data API v2 `/v2/positions`，journal 仅作兜底。
+- 合并：`pmm.execution.merge` + `tools/merge_pairs.py` + `pmm-merge.timer`（每 3 分钟）。
+- 归档：`docs/conversation.html`（脱敏对话实录）、`docs/agents/`（子智能体简报）。
+
+### 坑
+
+#### 1. 「必须迁移到 Deposit Wallet 才能下单」是错的
+
+- **症状**：下单被拒，`400 maker address not allowed, please use the deposit wallet flow`；照字面理解去做了钱包迁移方案，账户的 Deposit Wallet 却从未部署。
+- **根因**：maker/signer 配对不成立。v2 订单信封要求 `maker` 是资金钱包、`signer` 是 API key 所属地址，两者必须匹配 `signature_type`。
+- **修复**：`signature_type=1` + `maker=代理钱包` + `signer=账户签名者`，一次通过。
+- **教训**：交易所以「建议迁移」措辞报错时，先假设是自己的字段配对问题，而不是协议迁移问题。错的方向浪费了两天。
+
+#### 2. 下单被拒的四连击，每一次报错都指向了错误的方向
+
+| 客户端 | 版本 | sigtype | 报错 |
+|---|---|---|---|
+| py-clob-client 0.34.6 | v1 | 1 | `maker is required` |
+| py-clob-client 0.34.6 | v1（手写 payload） | 1 | `maker is required` |
+| py-clob-client-v2 | 1 | 0/1/2 | `invalid order version, please use the latest clob-client` |
+| py-clob-client-v2 | 2 | 0/1/2 | `maker address not allowed, please use the deposit wallet flow` |
+| py-clob-client-v2 | 2 | 3 | `the order signer address has to be the address of the API KEY` |
+
+最后一条其实已经说出了答案：`signer` 必须等于 API key 的地址。把它和 `signature_type=1` 合起来用即可。
+**教训**：错误信息里出现「the X has to be the address of Y」时，第一反应应该是「我的 X 现在是什么」，而不是「Y 需要另一个钱包」。
+
+#### 3. 单腿成交吃掉了 85% 的预算
+
+- **症状**：账户从 23.37 pUSD 掉到 3.77，盘口空了，循环却仍以为自己是空仓。
+- **根因**：配对挂单只有一侧成交时，持仓变成方向性裸仓；而 `Runner._inventory` 从 **journal 的 fill 记录**推库存，实盘路径从不写 fill（只有纸面模式写）。风控箱因此永远看到 0 持仓。
+- **修复**：实盘库存改读交易所 `/v2/positions`（按 token id 索引）。新增测试 `test_live_inventory_is_read_from_the_venue_not_the_journal`。
+- **教训**：任何「账本」都必须来自权威来源。用本地推导的账本做风控，风控会在最需要它的时候失明。
+
+#### 4. 合并回款这一步压根不存在
+
+- **症状**：配对成交后仓位只增不减，现金被吸干，最后连 20 股的配对都挂不起。
+- **根因**：策略的资本模型假设「完整套数 merge 回 1 pUSD 完成回款」，但代码里没有 merge 调用。
+- **修复**：`balanced_pairs()` 找出双腿齐全且 ≥5 股的市场，`merge_positions(amount="max")` 走 relayer + owner 签名；systemd 定时器每 3 分钟执行；单市场失败不影响其他市场。
+- **教训**：资本模型里写下的每一步，都必须在代码里存在。写在文档里的「自我回款」不会自己发生。
+
+#### 5. 赎回 18 个历史仓位，回收 0
+
+- **症状**：18 个 `redeemable: true` 的仓位，按「回收资金」处理。
+- **根因**：这些全是 9 月温度盘结算后的**输方**代币（`current_price = 0`），redeem 的赔付就是 0。
+- **修复**：relayer 走通赎回（仓位 20 → 19 已验证），但收益为 0，只是清空持仓视图。
+- **教训**：`redeemable` 只表示「可以赎回」，不表示「有东西可拿」。判断前先看 `current_price`。
+
+#### 6. Data API v1 已下线，我读到的「没有持仓」是假的
+
+- **症状**：`GET /positions` 返回空，据此判断账户无持仓。
+- **根因**：v1 返回 `410 Data API v1 has been retired`，代码把非 200 当成空列表。
+- **修复**：改用 `/v2/positions`、`/v2/value`。
+- **教训**：把「请求失败」与「结果为空」混为一谈，会产生完全错误的结论。失败必须与空值区分。
+
+#### 7. VPS 上的代码是旧快照
+
+- **症状**：只覆盖两个文件后服务启动即 `ImportError: cannot import name 'QuoteIntent'`，VPS 上还叫 `RunnerOptions`。
+- **根因**：`/opt/pmm` 落后于本地仓库，只同步单个文件会造成「新旧混装」。
+- **修复**：整包同步 `src/ tools/ pyproject.toml`，旧源码留备份。
+- **教训**：部署要先确认版本基线，增量拷贝只适用于确认过基线的目录。
+
+#### 8. 10% 的 taker 费让「卖出换现金」变成坏主意
+
+- **症状**：想卖掉单腿持仓换回现金。
+- **根因**：温度盘 `fee_rate_bps = 1000`（10%），买一档深度只有 5 股。
+- **结论**：卖出约回收 15.4 / 成本 19.6，直接亏 4.2；而市场当天结算、按面值赔付且免手续费，因此选择持有到期再 redeem。
+- **教训**：先查 `fee_rate_bps` 再决定退出方式。maker 与 taker 的成本差一个数量级。
+
+#### 9. SSH 与主机密钥
+
+- 工作站 Clash TUN 会劫持到 VPS 的 22 端口（fake-IP），表现为 `Connection closed by ... port 22`。绕过：`ip rule add priority 8999 to 155.254.60.38/32 lookup main`。
+- 主机密钥变更过一次，先核对 `hostname` 与 `uptime` 确认是同一台机器，再考虑忽略密钥指纹。
+
+---
+
+## [0.2.0] — 2026-11-22 · 只读可运行
+
+- 报价循环、闸门栈、快照、选品、自调参、监控落地；纸面模式可连续运行。
+- 交易所在「奖励带宽内」的报价得分为 0 的边界被固定为不变量：半价差被夹到 `max_spread`。
+- 结论：`min_size` 通常是 20 股，5 股在 99.4% 的奖励市场里不合格。
+
+## [0.1.0] — 2026-11-21 · 骨架
+
+- 四个模块并行开发：数据层、定价、执行适配器、风控/监控；由 `herdr` 面板分派给不同子智能体。
+- 首版测试 163 → 逐轮增补至今 204。

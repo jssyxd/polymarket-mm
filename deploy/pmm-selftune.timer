@@ -1,0 +1,14 @@
+[Unit]
+Description=Run the Polymarket maker self-tune tick hourly
+After=pmm-selftune.service
+
+[Timer]
+OnCalendar=hourly
+# Run a minute past the hour so the tick does not land in the same second
+# as every other hourly job on the box.
+OnCalendar=*-*-* *:01:00
+Persistent=true
+Unit=pmm-selftune.service
+
+[Install]
+WantedBy=timers.target

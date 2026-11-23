@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Polymarket pair merge every few minutes
+
+[Timer]
+OnCalendar=*:0/3
+AccuracySec=20s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

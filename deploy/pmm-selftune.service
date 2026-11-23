@@ -1,0 +1,18 @@
+[Unit]
+Description=Polymarket maker hourly self-tune tick
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pmm
+Group=pmm
+WorkingDirectory=/opt/pmm
+EnvironmentFile=/etc/pmm-mm/pmm.env
+ExecStart=/opt/pmm/.venv/bin/python /opt/pmm/tools/selftune.py
+StateDirectory=pmm
+ReadWritePaths=/var/lib/pmm
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

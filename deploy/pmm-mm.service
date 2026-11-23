@@ -1,0 +1,31 @@
+[Unit]
+Description=Polymarket maker quote loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pmm
+Group=pmm
+WorkingDirectory=/opt/pmm
+EnvironmentFile=/etc/pmm-mm/pmm.env
+# PMM_RUN_ARGS comes from the environment file: the same unit runs paper,
+# dry-run or live. Example: --interval 20 --capital 23 --size 20
+ExecStart=/opt/pmm/.venv/bin/python /opt/pmm/tools/run_mm.py $PMM_RUN_ARGS
+Restart=always
+RestartSec=10
+# The box has 960 MB of RAM. The loop holds one snapshot per candidate and
+# streams the journal, so this is far above what it needs and far below what
+# would let it starve the trading services on the same host.
+MemoryMax=400M
+MemoryHigh=300M
+# The service must be able to write its journal and its parameter file.
+StateDirectory=pmm
+ReadWritePaths=/var/lib/pmm
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
