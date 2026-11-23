@@ -34,6 +34,7 @@ from ..data.clob import CLOBError, get_book, get_market, get_midpoint, list_rewa
 from ..data.universe import RewardCandidate, market_meta, score_candidate
 from ..execution.clob import ExecutionError, Heartbeat, OrderExecutor
 from ..execution.positions import read_positions
+from ..execution.trades import sync_fills
 from ..execution.config import ExecutionConfig
 from ..execution.journal import Journal, compute_pnl
 from .cycle import QuoteCycle
@@ -463,6 +464,25 @@ class Runner:
                 "order_id": order_id,
             }
 
+    def _sync_fills(self) -> None:
+        """Record the venue's fills. Live only: a paper run fills nothing."""
+        if self.config.dry_run:
+            return
+        try:
+            fresh = sync_fills(self.journal, self.config)
+        except Exception as exc:  # noqa: BLE001 - never stop a cycle
+            LOGGER.warning("fill sync failed: %s", exc)
+            return
+        for fill in fresh:
+            LOGGER.info(
+                "fill %s %s %.4f @ %.4f on %s",
+                fill.get("side"),
+                fill.get("outcome"),
+                float(fill.get("size") or 0.0),
+                float(fill.get("price") or 0.0),
+                str(fill.get("condition_id"))[:10],
+            )
+
     # -- paper mode -------------------------------------------------------
 
     def _record_paper_fills(
@@ -529,6 +549,7 @@ class Runner:
 
         self._reconcile(result.intents)
         self._place(result.intents)
+        self._sync_fills()
         if self.runner_config.paper:
             self._record_paper_fills(result.intents, pairs)
 
