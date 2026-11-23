@@ -54,6 +54,10 @@ install -m 644 "${APP_DIR}/deploy/pmm-merge.service" /etc/systemd/system/pmm-mer
 install -m 644 "${APP_DIR}/deploy/pmm-merge.timer" /etc/systemd/system/pmm-merge.timer
 install -m 644 "${APP_DIR}/deploy/pmm-rescue.service" /etc/systemd/system/pmm-rescue.service
 install -m 644 "${APP_DIR}/deploy/pmm-rescue.timer" /etc/systemd/system/pmm-rescue.timer
+install -m 644 "${APP_DIR}/deploy/pmm-harvest.service" /etc/systemd/system/pmm-harvest.service
+install -m 644 "${APP_DIR}/deploy/pmm-harvest.timer" /etc/systemd/system/pmm-harvest.timer
+install -m 644 "${APP_DIR}/deploy/pmm-redeem.service" /etc/systemd/system/pmm-redeem.service
+install -m 644 "${APP_DIR}/deploy/pmm-redeem.timer" /etc/systemd/system/pmm-redeem.timer
 systemctl daemon-reload
 
 echo "==> preparing the environment file"

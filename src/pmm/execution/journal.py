@@ -128,7 +128,7 @@ class Journal:
         return [
             record
             for record in records
-            if record.get("kind") in ("fill", "merge")
+            if record.get("kind") in ("fill", "merge", "redeem")
         ]
 
     def record_pnl(self, pnl: dict, **fields: Any) -> dict:
@@ -173,7 +173,7 @@ class _LegState:
         return self.short_cost / self.short_qty if self.short_qty > 0 else 0.0
 
 
-def _apply_merge(legs: dict, size: float) -> float:
+def _apply_merge(legs: dict, size: float) -> float:  # noqa: D401
     """Turn `size` complete sets into `size` pUSD and return the realized PnL.
 
     A merge costs nothing and is outcome independent: one up token plus one
@@ -274,7 +274,7 @@ def compute_pnl(fills: list[dict], marks: dict[str, float]) -> dict:
         side = str(fill.get("side", "")).strip().upper()
         price = float(fill.get("price", 0.0))
         size = abs(float(fill.get("size", 0.0)))
-        if side == "MERGE":
+        if side in ("MERGE", "REDEEM"):
             if key in state:
                 realized += _apply_merge(state[key], size)
             continue

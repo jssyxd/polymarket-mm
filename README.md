@@ -132,6 +132,9 @@ systemctl enable --now pmm-mm.service pmm-merge.timer
 
 - `pmm-mm.service`：报价循环。**心跳必须在同一进程**——交易所的心跳一旦中断就会撤掉该 API key 的全部挂单，独立的心跳进程一挂就会带走整个盘口。
 - `pmm-merge.timer`：每 3 分钟扫描一次持仓，把双腿齐全的市场合并回 pUSD。合并放在独立 venv（`.venv-merge`）里跑，避免升级依赖影响正在交易的进程。
+- `pmm-rescue.timer`：每 5 分钟尝试用 1¢ 补腿把赢家凑成整套。
+- `pmm-harvest.timer`：每 10 分钟在存在合法被动卖价时以 0.99 卖出赢家（`POLY_HARVEST=1` 才生效）。
+- `pmm-redeem.timer`：每 30 分钟赎回已结算的赢家。<br>**这一步不能省**：交易所不会自动把已结算仓位转成 pUSD（9 月那 18 个仓位一直躺着就是证据）。
 
 ---
 
@@ -141,6 +144,7 @@ systemctl enable --now pmm-mm.service pmm-merge.timer
 
 | 顺序 | 触发 | 动作 | 回收 |
 |---|---|---|---|
+| 0 | 市场已结算、赢家腿 | `pmm-redeem.timer` 每 30 分钟 `redeem` | **1.00 / 股**（结算价） |
 | 1 | 两条腿都持有 | `pmm-merge.timer` 每 3 分钟 `merge` | **1.00 / 套**（与结果无关） |
 | 2 | 单腿，价格 ≥0.97，且距结算 ≥1 天 | `pmm-rescue.timer` 每 5 分钟在对手方最低价挂 post-only 买单 | 补齐套数 → 走 1 |
 | 3 | 补不齐（未实现） | 99¢ 卖单（见下） | 0.99 / 股 |
