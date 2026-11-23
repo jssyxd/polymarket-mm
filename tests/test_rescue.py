@@ -6,7 +6,7 @@ from pmm.execution.config import ExecutionConfig
 from pmm.execution.rescue import RescuePlan, plan_rescues, run_rescue
 
 
-def _pos(size=20.0, price=0.99, index=0, complement="COMP", condition="0xcond"):
+def _pos(size=200.0, price=0.99, index=0, complement="COMP", condition="0xcond"):
     return {
         "condition_id": condition,
         "title": "market",
@@ -17,10 +17,17 @@ def _pos(size=20.0, price=0.99, index=0, complement="COMP", condition="0xcond"):
     }
 
 
-def test_a_nearly_won_single_leg_gets_a_complement_bid_at_the_tick_floor():
-    plans = plan_rescues([_pos()])
+def test_a_large_nearly_won_leg_gets_a_complement_bid_at_the_tick_floor():
+    # 200 shares at 1c = $2, which clears the venue's $1 notional floor.
+    plans = plan_rescues([_pos(size=200.0, price=0.99)])
 
-    assert plans == [RescuePlan("0xcond", "market", "COMP", 20.0, 0.01, 0.99)]
+    assert plans == [RescuePlan("0xcond", "market", "COMP", 200.0, 0.01, 0.99)]
+
+
+def test_a_small_leg_cannot_clear_the_one_dollar_notional_floor():
+    # 20 shares at the tick is $0.20; the cheapest accepted bid would have to
+    # be 5c, which is above the complement's own mark of 1c.
+    assert plan_rescues([_pos(size=20.0, price=0.99)]) == []
 
 
 def test_a_paired_market_is_left_to_the_merge_timer():
@@ -28,20 +35,26 @@ def test_a_paired_market_is_left_to_the_merge_timer():
 
 
 def test_a_leg_below_the_threshold_is_not_rescued():
-    assert plan_rescues([_pos(price=0.90)]) == []
+    assert plan_rescues([_pos(size=200.0, price=0.90)]) == []
 
 
 def test_an_existing_order_on_the_complement_blocks_a_second_one():
-    assert plan_rescues([_pos()], open_assets=["COMP"]) == []
+    assert plan_rescues([_pos(size=200.0), _pos()], open_assets=["COMP"]) == []
 
 
 def test_a_size_below_the_venue_minimum_is_skipped():
-    assert plan_rescues([_pos(size=4.0)]) == []
+    assert plan_rescues([_pos(size=4.0, price=0.99)]) == []
+
+
+def test_a_finer_tick_lowers_the_cheapest_accepted_bid():
+    plans = plan_rescues([_pos(size=200.0, price=0.995)], ticks={"COMP": 0.001})
+
+    assert plans and plans[0].price == 0.005
 
 
 def test_a_balance_that_cannot_fund_the_bid_blocks_it():
-    assert plan_rescues([_pos()], balance=0.05) == []
-    assert len(plan_rescues([_pos()], balance=1.0)) == 1
+    assert plan_rescues([_pos(size=200.0)], balance=0.5) == []
+    assert len(plan_rescues([_pos(size=200.0)], balance=5.0)) == 1
 
 
 class _Client:
@@ -69,7 +82,7 @@ def test_a_dry_run_reports_the_plan_and_places_nothing():
     executor = _Executor()
     config = ExecutionConfig(dry_run=True)
 
-    results = run_rescue(config, executor=executor, positions=[_pos()])
+    results = run_rescue(config, executor=executor, positions=[_pos(size=200.0)])
 
     assert results[0]["status"] == "dry_run"
     assert executor.placed == []
@@ -79,7 +92,7 @@ def test_a_live_run_places_a_post_only_buy_on_the_complement():
     executor = _Executor()
     config = ExecutionConfig(dry_run=False, owner_pk="0x" + "11" * 32)
 
-    results = run_rescue(config, executor=executor, positions=[_pos()])
+    results = run_rescue(config, executor=executor, positions=[_pos(size=200.0)])
 
     assert executor.placed[0]["token_id"] == "COMP"
     assert executor.placed[0]["side"] == "BUY"
@@ -91,7 +104,7 @@ def test_a_live_run_places_a_post_only_buy_on_the_complement():
 def test_a_market_resolving_today_is_not_worth_completing():
     from datetime import date
 
-    row = _pos()
+    row = _pos(size=200.0)
     row["end_date"] = "2026-11-23"
 
     assert plan_rescues([row], today=date(2026, 11, 23)) == []
@@ -101,7 +114,7 @@ def test_a_market_resolving_today_is_not_worth_completing():
 def test_a_market_with_days_left_is_completed():
     from datetime import date
 
-    row = _pos()
+    row = _pos(size=200.0)
     row["end_date"] = "2027-06-30"
 
     assert len(plan_rescues([row], today=date(2026, 11, 23))) == 1

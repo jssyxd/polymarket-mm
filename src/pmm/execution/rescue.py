@@ -15,6 +15,7 @@ The plan is computed by a pure function so it can be tested without a venue.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Iterable, Mapping, Optional, Sequence
@@ -33,6 +34,11 @@ DEFAULT_MIN_PRICE = 0.97
 
 #: The venue's minimum order size. A cheaper completion is not accepted.
 DEFAULT_MIN_SIZE = 5.0
+
+#: The venue rejects a BUY below this notional, whatever the share count.
+#: It is what makes a small position uneconomic to complete: at 1c a share,
+#: $1 is 100 shares.
+MIN_BUY_NOTIONAL = 1.0
 
 #: Skip markets that resolve this soon. Buying the cheap leg costs the tick
 #: (1c) while the leg's fair value is at or below it, so the completion is
@@ -65,6 +71,14 @@ def _days_to_resolution(row: Mapping[str, Any], today: date) -> float | None:
     return float((end - today).days)
 
 
+def _ceil_to_tick(value: float, tick: float) -> float:
+    """The smallest tick multiple at or above `value`."""
+    if tick <= 0:
+        tick = 0.01
+    steps = math.ceil(round(value / tick, 9))
+    return round(steps * tick, 6)
+
+
 def _f(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -80,6 +94,7 @@ def plan_rescues(
     min_size: float = DEFAULT_MIN_SIZE,
     balance: Optional[float] = None,
     tick: float = 0.01,
+    ticks: Optional[Mapping[str, float]] = None,
     min_days_to_resolution: float = DEFAULT_MIN_DAYS_TO_RESOLUTION,
     today: date | None = None,
 ) -> list[RescuePlan]:
@@ -91,7 +106,13 @@ def plan_rescues(
     * that held leg is priced at or above `min_price`;
     * the complement token is known and has no resting order already;
     * the balance can fund `size * price`;
-    * the market does not resolve sooner than `min_days_to_resolution`.
+    * the market does not resolve sooner than `min_days_to_resolution`;
+    * the bid clears the venue's $1 minimum notional **and** stays at or
+      below what the complement is marked at, so the completion is an
+      arbitrage against the book rather than a bet on time value.
+
+    `ticks` maps a token id to its tick size; a missing tick uses `tick`.
+    The price is the cheapest tick multiple that clears the notional floor.
 
     `open_assets` are the token ids that already have an order, so a second
     cycle does not stack duplicates.
@@ -113,7 +134,6 @@ def plan_rescues(
         legs.setdefault(condition_id, {})[index] = row
 
     resting = {str(asset) for asset in open_assets}
-    price = max(float(tick), 0.01)
     plans: list[RescuePlan] = []
     for condition_id, pair in legs.items():
         if len(pair) != 1:
@@ -128,6 +148,11 @@ def plan_rescues(
             continue
         days_left = _days_to_resolution(row, today or date.today())
         if days_left is not None and days_left < min_days_to_resolution:
+            continue
+        leg_tick = float((ticks or {}).get(complement, tick) or tick)
+        price = _ceil_to_tick(max(leg_tick, MIN_BUY_NOTIONAL / size), leg_tick)
+        complement_mark = max(0.0, 1.0 - held_price)
+        if price <= 0 or price > complement_mark + 1e-9:
             continue
         if balance is not None and size * price > balance + 1e-9:
             continue
@@ -182,7 +207,26 @@ def run_rescue(
         min_size=min_size,
         balance=balance,
         min_days_to_resolution=min_days_to_resolution,
-    )[: max(0, int(max_orders))]
+    )
+    # The venue's tick varies per market (0.001 or 0.01), and the cheapest
+    # acceptable price depends on it. Re-plan once the real ticks are known.
+    ticks: dict[str, float] = {}
+    for plan in plans:
+        try:
+            ticks[plan.token_id] = float(executor.market_params(plan.token_id)[0])
+        except Exception:  # noqa: BLE001 - fall back to the default tick
+            continue
+    if ticks:
+        plans = plan_rescues(
+            positions,
+            open_assets=open_assets,
+            min_price=min_price,
+            min_size=min_size,
+            balance=balance,
+            min_days_to_resolution=min_days_to_resolution,
+            ticks=ticks,
+        )
+    plans = plans[: max(0, int(max_orders))]
 
     results: list[dict[str, Any]] = []
     if config.dry_run or not config.owner_pk:
