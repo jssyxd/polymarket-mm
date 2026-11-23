@@ -20,7 +20,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-__all__ = ["HarvestPlan", "HARVEST_MIN_PRICE", "plan_harvests", "run_harvest"]
+__all__ = [
+    "HarvestPlan",
+    "HARVEST_MIN_PRICE",
+    "passive_ask_price",
+    "plan_harvests",
+    "run_harvest",
+]
 
 #: The lowest price a harvest sell may rest at.
 HARVEST_MIN_PRICE = 0.99
@@ -51,6 +57,28 @@ def _f(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def passive_ask_price(
+    best_bid: float, tick: float, floor: float = HARVEST_MIN_PRICE
+) -> Optional[float]:
+    """The cheapest price a post-only sell can rest at, or None if there is none.
+
+    A sell below the best bid crosses it, and post-only refuses to cross. A
+    resting ask must therefore sit at `best_bid + tick` or higher. When the
+    book is already at the top of the grid (`1 - tick`), no valid passive ask
+    exists and the only exits left are paying the taker fee or settling.
+    """
+    import math
+
+    tick = tick if tick > 0 else 0.01
+    ceiling = round(1.0 - tick, 6)
+    price = floor if best_bid <= 0 else max(floor, best_bid + tick)
+    steps = math.ceil(round(price / tick, 9))
+    price = round(steps * tick, 6)
+    if price > ceiling + 1e-9:
+        return None
+    return price
 
 
 def plan_harvests(
@@ -107,6 +135,8 @@ def run_harvest(
     min_size: float = MIN_ORDER_SIZE,
     max_orders: int = 3,
     force: bool = False,
+    best_bids: Optional[Mapping[str, float]] = None,
+    ticks: Optional[Mapping[str, float]] = None,
 ) -> list[dict[str, Any]]:
     """Plan and place the harvest sells, returning one record per leg.
 
@@ -145,20 +175,85 @@ def run_harvest(
         positions, open_assets=open_assets, min_price=min_price, min_size=min_size
     )[: max(0, int(max_orders))]
 
+    # A resting ask must clear the best bid. Near the top of the grid there is
+    # no valid price at all, and the honest answer is "no order", not a
+    # rejection and not a 10% taker fee.
+    priced: list[tuple[Any, float]] = []
     results: list[dict[str, Any]] = []
-    if planning_only:
-        for plan in plans:
+    for plan in plans:
+        best_bid = _best_bid(executor, plan.token_id, best_bids)
+        tick = _tick(executor, plan.token_id, ticks)
+        price = passive_ask_price(best_bid, tick, floor=min_price)
+        if price is None:
             results.append(
                 {
                     "condition_id": plan.condition_id,
                     "size": plan.size,
-                    "price": plan.price,
                     "mark": plan.mark,
-                    "profit_per_share": round(plan.profit_per_share, 4),
+                    "best_bid": best_bid,
+                    "tick": tick,
+                    "status": "skipped: book at the ceiling, no passive ask",
+                }
+            )
+            continue
+        priced.append((plan, price))
+
+    if planning_only:
+        for plan, price in priced:
+            results.append(
+                {
+                    "condition_id": plan.condition_id,
+                    "size": plan.size,
+                    "price": price,
+                    "mark": plan.mark,
+                    "profit_per_share": round(price - plan.avg_cost, 4),
                     "status": "dry_run",
                 }
             )
         return results
+
+    for plan, price in priced:
+        intent = {
+            "token_id": plan.token_id,
+            "price": price,
+            "size": plan.size,
+            "side": "SELL",
+            "post_only": True,
+        }
+        try:
+            payload = executor.build_payload(intent)
+            response = executor.place(payload=payload, reason=f"harvest:{plan.condition_id[:10]}")
+            status = str(response.get("status") or "unknown")
+            if response.get("success") is False:
+                status = f"failed: {response.get('errorMsg') or response}"
+        except Exception as exc:  # noqa: BLE001 - one leg must not stop the rest
+            status = f"failed: {type(exc).__name__}: {exc}"[:200]
+        results.append(
+            {
+                "condition_id": plan.condition_id,
+                "size": plan.size,
+                "price": price,
+                "mark": plan.mark,
+                "profit_per_share": round(price - plan.avg_cost, 4),
+                "status": status,
+            }
+        )
+    return results
+
+
+def _best_bid(executor: Any, token_id: str, supplied: Optional[Mapping[str, float]]) -> float:
+    if supplied is not None:
+        return float(supplied.get(token_id, 0.0) or 0.0)
+    from ..data.clob import get_book
+
+    book = get_book(token_id)
+    return max((float(level.get("price") or 0) for level in book.get("bids") or []), default=0.0)
+
+
+def _tick(executor: Any, token_id: str, supplied: Optional[Mapping[str, float]]) -> float:
+    if supplied is not None:
+        return float(supplied.get(token_id, 0.01) or 0.01)
+    return float(executor.market_params(token_id)[0])
 
     for plan in plans:
         intent = {

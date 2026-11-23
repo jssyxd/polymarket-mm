@@ -128,7 +128,10 @@ def test_the_switch_arms_it_and_the_sell_is_post_only():
     executor = _Executor()
     config = ExecutionConfig(dry_run=False, owner_pk="0x" + "11" * 32, harvest_enabled=True)
 
-    results = run_harvest(config, executor=executor, positions=[_pos()])
+    results = run_harvest(
+        config, executor=executor, positions=[_pos()],
+        best_bids={"T1": 0.97}, ticks={"T1": 0.001},
+    )
 
     assert executor.placed[0]["side"] == "SELL"
     assert executor.placed[0]["post_only"] is True
@@ -143,7 +146,35 @@ def test_a_dry_run_works_with_the_switch_off():
     executor = _Executor()
     config = ExecutionConfig(dry_run=True, harvest_enabled=False)
 
-    results = run_harvest(config, executor=executor, positions=[_pos()])
+    results = run_harvest(
+        config, executor=executor, positions=[_pos()],
+        best_bids={"T1": 0.97}, ticks={"T1": 0.001},
+    )
 
     assert results[0]["status"] == "dry_run"
     assert executor.placed == []
+
+
+def test_a_book_at_the_ceiling_yields_no_order():
+    from pmm.execution.config import ExecutionConfig
+    from pmm.execution.harvest import run_harvest
+
+    executor = _Executor()
+    config = ExecutionConfig(dry_run=False, owner_pk="0x" + "11" * 32, harvest_enabled=True)
+
+    results = run_harvest(
+        config, executor=executor, positions=[_pos()],
+        best_bids={"T1": 0.999}, ticks={"T1": 0.001},
+    )
+
+    assert executor.placed == [], "a sell under a 0.999 bid would cross and be refused"
+    assert results[0]["status"].startswith("skipped")
+
+
+def test_the_passive_price_clears_the_bid_by_one_tick():
+    from pmm.execution.harvest import passive_ask_price
+
+    assert passive_ask_price(0.97, 0.001) == 0.99, "the floor wins when the bid is low"
+    assert passive_ask_price(0.990, 0.001) == 0.991
+    assert passive_ask_price(0.999, 0.001) is None
+    assert passive_ask_price(0.0, 0.01) == 0.99
