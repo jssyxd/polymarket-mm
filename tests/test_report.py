@@ -22,7 +22,7 @@ def test_a_paired_position_is_valued_at_one_per_set(tmp_path):
     assert summary["fills"] == 2
     assert summary["notional"] == 19.0
     assert summary["sides"] == {"BUY": 2}
-    assert summary["position_value"] == 20.0, "a complete set is worth 1.00 each"
+    assert summary["journal_inventory"] == 20.0, "a complete set is worth 1.00 each"
     assert summary["markets"] == 1
 
 
@@ -48,5 +48,5 @@ def test_a_merge_is_realized_and_removes_the_inventory(tmp_path):
 
     summary = summarise(journal, marks={"U": 0.52, "D": 0.47})
 
-    assert summary["position_value"] == 0.0, "the merged shares are gone"
+    assert summary["journal_inventory"] == 0.0, "the merged shares are gone"
     assert summary["realized"] == 1.0, "20 sets bought for 0.95 redeem for 1.00"

@@ -31,7 +31,24 @@ def _marks(config: ExecutionConfig) -> dict[str, float]:
     return marks
 
 
-def summarise(journal: Journal, marks: dict[str, float] | None = None, day: str | None = None) -> dict:
+def _position_values(config: ExecutionConfig) -> dict[str, float]:
+    """Current value per market, straight from the account's positions."""
+    from pmm.execution.positions import read_positions
+
+    values: dict[str, float] = {}
+    for row in read_positions(config).get("api_positions") or []:
+        key = str(row.get("condition_id") or "")
+        if key:
+            values[key] = values.get(key, 0.0) + float(row.get("current_value") or 0.0)
+    return values
+
+
+def summarise(
+    journal: Journal,
+    marks: dict[str, float] | None = None,
+    day: str | None = None,
+    position_values: dict[str, float] | None = None,
+) -> dict:
     fills = journal.fills()
     if day:
         fills = [f for f in fills if str(f.get("ts", "")) and _utc_date(f) == day]
@@ -54,7 +71,10 @@ def summarise(journal: Journal, marks: dict[str, float] | None = None, day: str 
         "markets": len(by_market),
         "top": sorted(by_market.items(), key=lambda kv: -kv[1]["notional"])[:5],
         "realized": round(float(pnl.get("realized_pnl") or 0.0), 2),
-        "position_value": round(float(pnl.get("position_value") or 0.0), 2),
+        "journal_inventory": round(float(pnl.get("position_value") or 0.0), 2),
+        "venue_inventory": (
+            round(sum(position_values.values()), 2) if position_values else None
+        ),
     }
 
 
@@ -79,7 +99,8 @@ def main(argv: list[str] | None = None) -> int:
     config = ExecutionConfig.from_env()
     journal = Journal(args.journal or config.journal_path)
     marks = {} if args.no_marks else _marks(config)
-    summary = summarise(journal, marks, args.day)
+    values = None if args.no_marks else _position_values(config)
+    summary = summarise(journal, marks, args.day, values)
 
     if args.json:
         print(json.dumps(summary, indent=1))
@@ -90,7 +111,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"notional      {summary['notional']:.2f} pUSD")
     print(f"sides         {summary['sides']}")
     print(f"realized PnL  {summary['realized']:.2f} pUSD")
-    print(f"inventory     {summary['position_value']:.2f} pUSD")
+    print(f"inv (journal) {summary['journal_inventory']:.2f} pUSD")
+    if summary["venue_inventory"] is not None:
+        drift = summary["journal_inventory"] - summary["venue_inventory"]
+        print(f"inv (venue)   {summary['venue_inventory']:.2f} pUSD   drift {drift:+.2f}")
     if summary["top"]:
         print("\ntop markets by notional")
         for market, record in summary["top"]:
