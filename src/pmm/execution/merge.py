@@ -90,6 +90,7 @@ def merge_pairs(
     *,
     positions: Optional[Sequence[Mapping[str, Any]]] = None,
     client: Any = None,
+    journal: Any = None,
     min_size: float = MERGE_MIN_SIZE,
 ) -> list[dict[str, Any]]:
     """Merge every market that holds both legs and return what was merged.
@@ -122,6 +123,16 @@ def merge_pairs(
             )
             handle.wait()
             status = "merged"
+            if journal is not None:
+                journal.append(
+                    "merge",
+                    condition_id=target.condition_id,
+                    side="MERGE",
+                    size=target.size,
+                    price=1.0,
+                    notional=target.size,
+                    reason="complete_set",
+                )
         except Exception as exc:  # noqa: BLE001 - one failure must not stop the rest
             status = f"failed: {type(exc).__name__}: {exc}"[:200]
         results.append(

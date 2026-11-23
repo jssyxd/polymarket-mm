@@ -46,14 +46,14 @@ def summarise(journal: Journal, marks: dict[str, float] | None = None, day: str 
         record["size"] += float(fill.get("size") or 0.0)
         sides[str(fill.get("side") or "").upper()] += 1
 
-    pnl = compute_pnl(fills, marks or {}) if fills else {"realized": 0.0, "position_value": 0.0}
+    pnl = compute_pnl(fills, marks or {}) if fills else {"realized_pnl": 0.0, "position_value": 0.0}
     return {
         "fills": len(fills),
         "notional": round(sum(float(f.get("notional") or 0.0) for f in fills), 2),
         "sides": dict(sides),
         "markets": len(by_market),
         "top": sorted(by_market.items(), key=lambda kv: -kv[1]["notional"])[:5],
-        "realized": round(float(pnl.get("realized") or 0.0), 2),
+        "realized": round(float(pnl.get("realized_pnl") or 0.0), 2),
         "position_value": round(float(pnl.get("position_value") or 0.0), 2),
     }
 

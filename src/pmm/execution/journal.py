@@ -125,7 +125,11 @@ class Journal:
             records = []
             for day in days:
                 records.extend(self.read_day(day))
-        return [record for record in records if record.get("kind") == "fill"]
+        return [
+            record
+            for record in records
+            if record.get("kind") in ("fill", "merge")
+        ]
 
     def record_pnl(self, pnl: dict, **fields: Any) -> dict:
         """Record a PnL snapshot."""
@@ -167,6 +171,29 @@ class _LegState:
     @property
     def short_avg(self) -> float:
         return self.short_cost / self.short_qty if self.short_qty > 0 else 0.0
+
+
+def _apply_merge(legs: dict, size: float) -> float:
+    """Turn `size` complete sets into `size` pUSD and return the realized PnL.
+
+    A merge costs nothing and is outcome independent: one up token plus one
+    down token of the same condition always redeem for 1 pUSD. Without this,
+    PnL only ever adds inventory and the report overstates what is held.
+    """
+    up = legs.get(_UP)
+    down = legs.get(_DOWN)
+    if up is None or down is None:
+        return 0.0
+    qty = min(size, up.long_qty, down.long_qty)
+    if qty <= 0:
+        return 0.0
+    up_avg = up.long_avg
+    down_avg = down.long_avg
+    up.long_qty -= qty
+    up.long_cost -= up_avg * qty
+    down.long_qty -= qty
+    down.long_cost -= down_avg * qty
+    return qty * 1.0 - (up_avg + down_avg) * qty
 
 
 def _apply_fill(state: _LegState, side: str, price: float, size: float) -> float:
@@ -244,10 +271,14 @@ def compute_pnl(fills: list[dict], marks: dict[str, float]) -> dict:
     realized = 0.0
     for fill in fills:
         key = _condition_key(fill)
-        leg = _leg(fill.get("outcome"))
         side = str(fill.get("side", "")).strip().upper()
         price = float(fill.get("price", 0.0))
         size = abs(float(fill.get("size", 0.0)))
+        if side == "MERGE":
+            if key in state:
+                realized += _apply_merge(state[key], size)
+            continue
+        leg = _leg(fill.get("outcome"))
         current = state[key][leg]
         other = state[key][_DOWN if leg == _UP else _UP]
         realized += _apply_fill(current, side, price, size)
