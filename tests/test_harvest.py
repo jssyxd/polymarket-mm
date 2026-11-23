@@ -1,0 +1,94 @@
+"""Plan B standing by: harvest planning and the SELL invariants that gate it."""
+
+from __future__ import annotations
+
+import pytest
+
+from pmm.core.selection import QuoteIntent
+from pmm.engine.runner import _resting_key
+from pmm.execution.clob import ExecutionError
+from pmm.execution.harvest import HarvestPlan, plan_harvests
+
+
+def _pos(size=57.33, mark=0.9955, cost=0.90, token="T1"):
+    return {
+        "condition_id": "0xcond",
+        "title": "market",
+        "token_id": token,
+        "current_size": size,
+        "current_price": mark,
+        "avg_price": cost,
+    }
+
+
+def _intent(**overrides) -> QuoteIntent:
+    fields = dict(
+        condition_id="0xcond",
+        question="q",
+        leg="up",
+        token_id="T1",
+        price=0.99,
+        size=57.33,
+        side="SELL",
+        post_only=True,
+        kind="harvest",
+    )
+    fields.update(overrides)
+    return QuoteIntent(**fields)
+
+
+def test_a_nearly_won_profitable_leg_is_harvestable():
+    plans = plan_harvests([_pos()])
+
+    assert plans == [HarvestPlan("0xcond", "market", "T1", 57.33, 0.99, 0.9955, 0.90)]
+
+
+def test_selling_at_the_floor_must_still_be_profitable():
+    assert plan_harvests([_pos(cost=0.99)]) == []
+    assert plan_harvests([_pos(cost=0.97)]) != []
+
+
+def test_a_leg_below_the_floor_is_not_harvested():
+    assert plan_harvests([_pos(mark=0.98)]) == []
+
+
+def test_a_small_leg_or_an_already_resting_order_is_skipped():
+    assert plan_harvests([_pos(size=4.0)]) == []
+    assert plan_harvests([_pos()], open_assets=["T1"]) == []
+
+
+def test_the_resting_key_keeps_a_buy_and_a_sell_on_one_leg_apart():
+    buy = _intent(side="BUY", kind="quote")
+    sell = _intent(side="SELL")
+
+    assert _resting_key(buy) != _resting_key(sell)
+    assert _resting_key(buy) == ("0xcond", "up", "BUY")
+
+
+def test_a_plain_sell_intent_is_still_refused():
+    with pytest.raises(ExecutionError, match="not a buy"):
+        Runner_payloads([_intent(kind="quote")])
+
+
+def test_a_harvest_sell_below_the_floor_is_refused():
+    with pytest.raises(ExecutionError, match="floor"):
+        Runner_payloads([_intent(price=0.98)])
+
+
+def test_a_harvest_sell_must_be_post_only():
+    with pytest.raises(ExecutionError, match="post-only"):
+        Runner_payloads([_intent(post_only=False)])
+
+
+def test_a_harvest_sell_at_the_floor_is_allowed():
+    payloads = Runner_payloads([_intent()])
+
+    assert payloads[0]["side"] == "SELL"
+    assert payloads[0]["price"] == 0.99
+    assert payloads[0]["post_only"] is True
+
+
+def Runner_payloads(intents):
+    from pmm.engine.runner import Runner
+
+    return Runner._payloads(intents)

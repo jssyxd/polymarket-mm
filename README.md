@@ -152,15 +152,24 @@ systemctl enable --now pmm-mm.service pmm-merge.timer
 - **交易所对 BUY 有 $1 最小名义额**。20 股按 1¢ 只有 $0.20，会被拒；最低可接受价是 `max(tick, 1/size)`，所以小仓位补腿不经济。
 - **补腿价必须 ≤ 对手方自身标记价**（`1 - 持仓价`）。花 1.75¢ 买一个标记 0.45¢ 的腿，不如等结算；只有当补腿价低于其市场价时，合并才是套利。
 
-### 待开发：Plan B（99¢ 卖单兜底）
+### Plan B（99¢ 卖单兜底）— 基础设施已就位，**未启用**
 
-当补腿长期不成交、且赢家买一 ≥0.99 时，挂 post-only 卖单直接回款（回 0.99/股，折价 1%）。
+当补腿不经济或长期不成交时，挂 post-only 卖单直接回款（回 0.99/股，折价 1%）。
 
-前置条件，都是真改动：
+已完成的改造（都有测试，但**没有任何代码路径会产生 harvest 意图**）：
 
-1. `Runner._payloads` 目前**硬性拒绝非 BUY 意图**，需要放开并补上不变量（post-only、持仓 ≥ 卖出量、价格 ≥ 成本）。
-2. `self._resting` 以 `(condition_id, leg)` 为键，同一腿上的买单与卖单会互相覆盖，键必须带上 `side`，否则撤单会撤错单。
-3. 需要先有"补腿 N 分钟不成交"的判定，所以 Plan B 依赖 rescue 的运行记录。
+| 项 | 状态 |
+|---|---|
+| `_resting` 键改为 `(condition_id, leg, side)` | ✅ 同一腿上的买单与卖单不再互相覆盖 |
+| `QuoteIntent.kind`（`quote` / `harvest`） | ✅ 默认 `quote`，报价路径不可能意外发出卖单 |
+| `Runner._payloads` 的 SELL 不变量 | ✅ 仅 `kind="harvest"` 允许 SELL；必须 post-only；价格 ≥0.99；size > 0 |
+| `pmm.execution.harvest.plan_harvests` | ✅ 纯函数，按 持有量 / 标记价 / 成本 / 已挂单 生成计划 |
+
+启用还差三步：
+
+1. 一个生产者：把 `plan_harvests` 的计划转成 `QuoteIntent(kind="harvest", side="SELL")`，走 `_place`。
+2. 触发条件：rescue 连续 N 次未能补腿，或补腿价高于对手方标记价。
+3. 一个开关（例如 `POLY_HARVEST=1`）加默认关闭，先 dry-run 观察一周。
 
 ## 关键不变量
 

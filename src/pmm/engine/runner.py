@@ -50,6 +50,15 @@ __all__ = [
 
 LOGGER = logging.getLogger("pmm.runner")
 
+#: Plan B floor: a harvest sell never rests below this price.
+HARVEST_MIN_PRICE = 0.99
+
+
+#: The key a resting order is tracked under. The side is part of it.
+def _resting_key(intent: QuoteIntent) -> tuple[str, str, str]:
+    return (intent.condition_id, intent.leg, intent.side.upper())
+
+
 #: A callable that returns the markets to quote this cycle.
 MarketSource = Callable[[], Sequence[tuple[MarketSnapshot, RewardCandidate]]]
 
@@ -226,7 +235,9 @@ class Runner:
             else _venue_positions(config)
         )
 
-        self._resting: dict[tuple[str, str], dict[str, Any]] = {}
+        # Keyed by (condition, leg, side): a harvest sell may rest on the
+        # same leg as a quote buy, and the two must not cancel each other.
+        self._resting: dict[tuple[str, str, str], dict[str, Any]] = {}
         self._paper_filled: set[tuple[str, str, float]] = set()
         self._running = False
         self.live_refused = False
@@ -362,7 +373,7 @@ class Runner:
         book. A quote the market has moved away from is cancelled and
         replaced, because the venue does not let us amend a resting order.
         """
-        wanted = {(intent.condition_id, intent.leg): intent for intent in intents}
+        wanted = {_resting_key(intent): intent for intent in intents}
         for key, resting in list(self._resting.items()):
             intent = wanted.get(key)
             if intent is None:
@@ -389,7 +400,24 @@ class Runner:
                 raise ExecutionError(
                     f"intent for {intent.condition_id}/{intent.leg} is not post-only"
                 )
-            if intent.side.upper() != "BUY":
+            side = intent.side.upper()
+            if getattr(intent, "kind", "quote") == "harvest":
+                # Plan B: the only sell the system may rest. It exists to
+                # convert a nearly-won leg into cash instead of waiting for
+                # resolution, and it must never be mistaken for a quote.
+                if side != "SELL":
+                    raise ExecutionError(
+                        f"harvest intent for {intent.condition_id}/{intent.leg} must be a sell"
+                    )
+                if intent.price < HARVEST_MIN_PRICE:
+                    raise ExecutionError(
+                        f"harvest sell at {intent.price} is below the {HARVEST_MIN_PRICE} floor"
+                    )
+                if intent.size <= 0:
+                    raise ExecutionError("harvest sell with no size")
+                payloads.append(intent.to_payload())
+                continue
+            if side != "BUY":
                 raise ExecutionError(
                     f"intent for {intent.condition_id}/{intent.leg} is not a buy: "
                     "the maker rests two bids, never a bid and an ask"
@@ -428,7 +456,7 @@ class Runner:
         fresh = [
             intent
             for intent in intents
-            if (intent.condition_id, intent.leg) not in self._resting
+            if _resting_key(intent) not in self._resting
         ]
         if not fresh:
             return
@@ -458,7 +486,7 @@ class Runner:
             order_id = ""
             if isinstance(result, dict):
                 order_id = str(result.get("orderID") or result.get("order_id") or "")
-            self._resting[(intent.condition_id, intent.leg)] = {
+            self._resting[_resting_key(intent)] = {
                 "price": intent.price,
                 "size": intent.size,
                 "order_id": order_id,

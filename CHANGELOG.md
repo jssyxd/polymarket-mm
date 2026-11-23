@@ -31,9 +31,12 @@
 
 - 同一批市场里有 `tick_size = 0.001`，价格必须按**该 token 自己的** tick 取整，否则最低价算错（0.005 会被当成不合法的 0.01）。
 
-### 待开发
+### Plan B 基础设施（未启用）
 
-- **Plan B**：补腿 N 分钟不成交且赢家买一 ≥0.99 时，挂 post-only 99¢ 卖单（回 0.99/股）。前置：放开 `_payloads` 的只买不卖、`_resting` 键加 `side`。详见 README。
+- `_resting` 键加 `side`，同腿买卖不再互相覆盖。
+- `QuoteIntent.kind`，报价默认 `quote`；`_payloads` 仅对 `kind="harvest"` 放行 SELL，并要求 post-only、价格 ≥0.99、size > 0。
+- `pmm.execution.harvest.plan_harvests`：按 持有量 / 标记价 / 成本 / 已挂单 生成卖单计划。
+- 仍缺：生产者、触发条件、默认关闭的开关。见 README「资金回收」。
 
 ---
 

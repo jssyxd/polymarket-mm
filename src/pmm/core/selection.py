@@ -64,6 +64,7 @@ class QuoteIntent:
         reason: Why this intent exists.
         tick_size: Venue price grid of the market.
         neg_risk: Whether the market sits in a neg-risk adapter market.
+        kind: "quote" for a resting bid, "harvest" for a Plan B exit sell.
     """
 
     condition_id: str
@@ -77,6 +78,7 @@ class QuoteIntent:
     reason: str = ""
     tick_size: float = 0.01
     neg_risk: bool = False
+    kind: str = "quote"
 
     def to_payload(self) -> dict[str, Any]:
         """The dict the execution layer takes."""
