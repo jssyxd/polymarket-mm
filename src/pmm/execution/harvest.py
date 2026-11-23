@@ -189,7 +189,7 @@ def run_harvest(
                 }
             )
             continue
-        fee_bps = _fee_bps(executor, plan.token_id, fee_bps)
+        fee_bps = _fee_bps(config, executor, plan, fee_bps)
         if price * (1.0 - fee_bps / 10_000.0) <= plan.avg_cost:
             results.append(
                 {
@@ -258,13 +258,22 @@ def _best_bid(executor: Any, token_id: str, supplied: Optional[Mapping[str, floa
     return max((float(level.get("price") or 0) for level in book.get("bids") or []), default=0.0)
 
 
-def _fee_bps(executor: Any, token_id: str, supplied: Optional[int]) -> int:
+def _fee_bps(config: Any, executor: Any, plan: Any, supplied: Optional[int]) -> int:
+    """The fee to assume: measured first, then the market's configured rate."""
     if supplied is not None:
         return int(supplied)
+    from .fees import observed_fee_bps
+
+    try:
+        measured = observed_fee_bps(config.journal_path, plan.condition_id)
+    except Exception:  # noqa: BLE001 - the store is advisory
+        measured = None
+    if measured is not None:
+        return int(measured)
     from ..data.clob import get_fee_rate_bps
 
     try:
-        return int(get_fee_rate_bps(token_id))
+        return int(get_fee_rate_bps(plan.token_id))
     except Exception:  # noqa: BLE001 - an unknown fee is treated as the worst seen
         return 1000
 

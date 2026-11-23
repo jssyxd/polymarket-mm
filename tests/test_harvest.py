@@ -195,3 +195,27 @@ def test_a_fee_that_eats_the_profit_blocks_the_sell():
 
     assert executor.placed == [], "0.99 less 10% is 0.891, below the 0.95 cost"
     assert results[0]["status"].startswith("skipped")
+
+
+def test_the_measured_fee_wins_over_the_market_configured_rate(tmp_path):
+    from pmm.execution.config import ExecutionConfig
+    from pmm.execution.fees import record_fees
+    from pmm.execution.harvest import run_harvest
+
+    record_fees(tmp_path, {"0xcond": 0})
+    executor = _Executor()
+    config = ExecutionConfig(
+        dry_run=False,
+        owner_pk="0x" + "11" * 32,
+        harvest_enabled=True,
+        journal_path=str(tmp_path),
+    )
+
+    # The market is configured at 1000 bps, but a measured 0 was recorded, so
+    # a 0.95 cost no longer blocks the 0.99 sell.
+    results = run_harvest(
+        config, executor=executor, positions=[_pos(cost=0.95)],
+        best_bids={"T1": 0.999}, ticks={"T1": 0.001},
+    )
+
+    assert executor.placed and results[0]["status"] == "live"

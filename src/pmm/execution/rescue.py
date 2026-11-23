@@ -57,6 +57,7 @@ class RescuePlan:
     size: float
     price: float
     held_side_price: float
+    held_token_id: str = ""
 
 
 def _days_to_resolution(row: Mapping[str, Any], today: date) -> float | None:
@@ -164,9 +165,25 @@ def plan_rescues(
                 size=size,
                 price=price,
                 held_side_price=held_price,
+                held_token_id=str(row.get("token_id") or ""),
             )
         )
     return plans
+
+
+def _held_bid(executor: Any, token_id: str, supplied: Optional[Mapping[str, float]]) -> float:
+    """Best bid on the held leg, or 0 when it cannot be read."""
+    if supplied is not None:
+        return float(supplied.get(token_id, 0.0) or 0.0)
+    if not token_id:
+        return 0.0
+    try:
+        from ..data.clob import get_book
+
+        book = get_book(token_id)
+        return max((float(level.get("price") or 0) for level in book.get("bids") or []), default=0.0)
+    except Exception:  # noqa: BLE001 - an unreadable book means "no bid"
+        return 0.0
 
 
 def run_rescue(
@@ -178,6 +195,7 @@ def run_rescue(
     min_size: float = DEFAULT_MIN_SIZE,
     min_days_to_resolution: float = DEFAULT_MIN_DAYS_TO_RESOLUTION,
     max_orders: int = 5,
+    held_bids: Optional[Mapping[str, float]] = None,
 ) -> list[dict[str, Any]]:
     """Plan and place the complement bids, returning one record per market."""
     from .clob import OrderExecutor
@@ -226,9 +244,29 @@ def run_rescue(
             min_days_to_resolution=min_days_to_resolution,
             ticks=ticks,
         )
-    plans = plans[: max(0, int(max_orders))]
-
     results: list[dict[str, Any]] = []
+    # Harvest takes precedence: when the held leg already has a bid at or above
+    # the harvest floor, selling it beats spending 1c to complete the set
+    # (0.999 collected now against 1.00 minus the 1c complement).
+    from .harvest import HARVEST_MIN_PRICE
+
+    kept: list[RescuePlan] = []
+    for plan in plans:
+        held_bid = _held_bid(executor, plan.held_token_id, held_bids)
+        if held_bid >= HARVEST_MIN_PRICE - 1e-9:
+            results.append(
+                {
+                    "condition_id": plan.condition_id,
+                    "size": plan.size,
+                    "held_side_price": plan.held_side_price,
+                    "best_bid": held_bid,
+                    "status": "skipped: harvest takes precedence",
+                }
+            )
+            continue
+        kept.append(plan)
+    plans = kept[: max(0, int(max_orders))]
+
     if config.dry_run or not config.owner_pk:
         for plan in plans:
             results.append(

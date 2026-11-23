@@ -118,3 +118,20 @@ def test_a_market_with_days_left_is_completed():
     row["end_date"] = "2027-06-30"
 
     assert len(plan_rescues([row], today=date(2026, 11, 23))) == 1
+
+
+def test_rescue_stands_down_when_harvest_can_sell_the_held_leg():
+    executor = _Executor()
+    config = ExecutionConfig(dry_run=True)
+    row = _pos(size=200.0)
+    row["token_id"] = "HELD"
+
+    results = run_rescue(
+        config, executor=executor, positions=[row], held_bids={"HELD": 0.999}
+    )
+
+    assert results[0]["status"].startswith("skipped: harvest")
+    plan_only = run_rescue(
+        config, executor=executor, positions=[row], held_bids={"HELD": 0.90}
+    )
+    assert plan_only[0]["status"] == "dry_run"

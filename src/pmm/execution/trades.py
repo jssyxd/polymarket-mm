@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Sequence
 
-__all__ = ["venue_fills", "sync_fills"]
+__all__ = ["venue_fills", "sync_fills", "journal_path_of"]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +32,13 @@ def _as_float(value: Any) -> float:
 
 def _fill(trade: dict, leg: dict) -> dict:
     """One fill record, built from a trade and one side of it."""
+    raw_fee = leg.get("fee_rate_bps")
+    if raw_fee in (None, ""):
+        raw_fee = trade.get("fee_rate_bps")
+    try:
+        fee_bps = None if raw_fee in (None, "") else int(float(raw_fee))
+    except (TypeError, ValueError):
+        fee_bps = None
     price = round(_as_float(leg.get("price") or trade.get("price")), 6)
     size = _as_float(leg.get("matched_amount") or leg.get("size") or trade.get("size"))
     return {
@@ -46,8 +53,14 @@ def _fill(trade: dict, leg: dict) -> dict:
         "notional": round(price * size, 6),
         "ts": int(_as_float(trade.get("match_time")) or 0),
         "transaction_hash": trade.get("transaction_hash"),
+        "fee_bps": fee_bps,
         "source": "venue",
     }
+
+
+def journal_path_of(journal: Any) -> str:
+    """The directory a journal writes to, for sibling files like fees.json."""
+    return str(getattr(journal, "path", getattr(journal, "directory", "")) or "")
 
 
 def venue_fills(config: Any, client: Any = None) -> list[dict]:
@@ -101,6 +114,18 @@ def sync_fills(journal: Any, config: Any, client: Any = None) -> list[dict]:
     except Exception as exc:  # noqa: BLE001 - the journal is best effort
         LOGGER.warning("venue fills unavailable: %s", exc)
         return []
+
+    observed: dict[str, float] = {}
+    for fill in fills:
+        if fill.get("fee_bps") is not None and fill.get("condition_id"):
+            observed[str(fill["condition_id"])] = float(fill["fee_bps"])
+    if observed:
+        from .fees import record_fees
+
+        try:
+            record_fees(journal_path_of(journal), observed)
+        except Exception as exc:  # noqa: BLE001 - the store is advisory
+            LOGGER.warning("could not record observed fees: %s", exc)
 
     fresh: list[dict] = []
     for fill in fills:

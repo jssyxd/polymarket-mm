@@ -4,6 +4,12 @@
 
 ---
 
+## [0.5.1] — 2026-11-24 · 优先级与真实费率
+
+- **harvest 优先于 rescue**：`run_rescue` 先读持有腿的买一，≥0.99 时不挂 1¢ 买单（0.999 直接卖 > 1.00 − 1¢ 补腿），并在结果里注明 `skipped: harvest takes precedence`。
+- **费率探测**：`pmm.execution.fees` 记录每市场实测 `fee_bps`（`journal/fees.json`，原子写）；`sync_fills` 每次同步时更新；harvest 的利润闸门优先用实测值，查不到才用市场配置。
+- 测试 245 passed。
+
 ## [0.5.0] — 2026-11-24 · 结算回款闭环
 
 ### 新增
