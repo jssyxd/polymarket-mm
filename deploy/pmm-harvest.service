@@ -1,0 +1,10 @@
+[Unit]
+Description=Plan B: sell nearly-won Polymarket legs at the floor
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pmm
+EnvironmentFile=/etc/pmm-mm/pmm.env
+Environment=PYTHONPATH=/opt/pmm/src
+ExecStart=/opt/pmm/.venv/bin/python /opt/pmm/tools/harvest.py

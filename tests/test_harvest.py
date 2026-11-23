@@ -92,3 +92,58 @@ def Runner_payloads(intents):
     from pmm.engine.runner import Runner
 
     return Runner._payloads(intents)
+
+
+class _Client:
+    def get_open_orders(self):
+        return []
+
+
+class _Executor:
+    def __init__(self) -> None:
+        self.client = _Client()
+        self.placed: list[dict] = []
+
+    def build_payload(self, intent):
+        return dict(intent)
+
+    def place(self, payload, reason):
+        self.placed.append(payload)
+        return {"status": "live", "success": True}
+
+
+def test_a_live_harvest_is_refused_unless_the_switch_is_on():
+    from pmm.execution.config import ExecutionConfig
+    from pmm.execution.harvest import run_harvest
+
+    config = ExecutionConfig(dry_run=False, owner_pk="0x" + "11" * 32, harvest_enabled=False)
+    with pytest.raises(RuntimeError, match="POLY_HARVEST"):
+        run_harvest(config, executor=_Executor(), positions=[_pos()])
+
+
+def test_the_switch_arms_it_and_the_sell_is_post_only():
+    from pmm.execution.config import ExecutionConfig
+    from pmm.execution.harvest import run_harvest
+
+    executor = _Executor()
+    config = ExecutionConfig(dry_run=False, owner_pk="0x" + "11" * 32, harvest_enabled=True)
+
+    results = run_harvest(config, executor=executor, positions=[_pos()])
+
+    assert executor.placed[0]["side"] == "SELL"
+    assert executor.placed[0]["post_only"] is True
+    assert executor.placed[0]["price"] == 0.99
+    assert results[0]["status"] == "live"
+
+
+def test_a_dry_run_works_with_the_switch_off():
+    from pmm.execution.config import ExecutionConfig
+    from pmm.execution.harvest import run_harvest
+
+    executor = _Executor()
+    config = ExecutionConfig(dry_run=True, harvest_enabled=False)
+
+    results = run_harvest(config, executor=executor, positions=[_pos()])
+
+    assert results[0]["status"] == "dry_run"
+    assert executor.placed == []

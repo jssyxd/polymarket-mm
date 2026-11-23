@@ -18,9 +18,9 @@ reviewable before it is armed, and so the SELL invariants in
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
-__all__ = ["HarvestPlan", "HARVEST_MIN_PRICE", "plan_harvests"]
+__all__ = ["HarvestPlan", "HARVEST_MIN_PRICE", "plan_harvests", "run_harvest"]
 
 #: The lowest price a harvest sell may rest at.
 HARVEST_MIN_PRICE = 0.99
@@ -96,3 +96,94 @@ def plan_harvests(
             )
         )
     return plans
+
+
+def run_harvest(
+    config: Any,
+    *,
+    executor: Any = None,
+    positions: Optional[Sequence[Mapping[str, Any]]] = None,
+    min_price: float = HARVEST_MIN_PRICE,
+    min_size: float = MIN_ORDER_SIZE,
+    max_orders: int = 3,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Plan and place the harvest sells, returning one record per leg.
+
+    Refuses to run unless `POLY_HARVEST` is set, or `force` is passed by a
+    dry run. The order path keeps the same invariants as `Runner._payloads`:
+    post-only, a sell, price at or above the floor.
+    """
+    from .clob import OrderExecutor
+    from .positions import read_positions
+
+    if config.dry_run or not config.owner_pk:
+        planning_only = True
+    elif getattr(config, "harvest_enabled", False) or force:
+        planning_only = False
+    else:
+        raise RuntimeError(
+            "harvest is disabled: set POLY_HARVEST=1 to rest live sell orders"
+        )
+
+    if executor is None:
+        executor = OrderExecutor(config)
+    if positions is None:
+        positions = read_positions(config).get("api_positions") or []
+
+    open_assets: list[str] = []
+    try:
+        open_assets = [
+            str(order.get("asset_id"))
+            for order in executor.client.get_open_orders()
+            if isinstance(order, dict)
+        ]
+    except Exception:  # noqa: BLE001 - unreadable book means "unknown"
+        open_assets = []
+
+    plans = plan_harvests(
+        positions, open_assets=open_assets, min_price=min_price, min_size=min_size
+    )[: max(0, int(max_orders))]
+
+    results: list[dict[str, Any]] = []
+    if planning_only:
+        for plan in plans:
+            results.append(
+                {
+                    "condition_id": plan.condition_id,
+                    "size": plan.size,
+                    "price": plan.price,
+                    "mark": plan.mark,
+                    "profit_per_share": round(plan.profit_per_share, 4),
+                    "status": "dry_run",
+                }
+            )
+        return results
+
+    for plan in plans:
+        intent = {
+            "token_id": plan.token_id,
+            "price": plan.price,
+            "size": plan.size,
+            "side": "SELL",
+            "post_only": True,
+        }
+        try:
+            payload = executor.build_payload(intent)
+            response = executor.place(payload=payload, reason=f"harvest:{plan.condition_id[:10]}")
+            status = str(response.get("status") or "unknown")
+            if response.get("success") is False:
+                status = f"failed: {response.get('errorMsg') or response}"
+        except Exception as exc:  # noqa: BLE001 - one leg must not stop the rest
+            status = f"failed: {type(exc).__name__}: {exc}"[:200]
+        results.append(
+            {
+                "condition_id": plan.condition_id,
+                "size": plan.size,
+                "price": plan.price,
+                "mark": plan.mark,
+                "profit_per_share": round(plan.profit_per_share, 4),
+                "status": status,
+            }
+        )
+    return results
