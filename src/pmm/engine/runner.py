@@ -396,7 +396,8 @@ class Runner:
         """
         payloads: list[dict[str, Any]] = []
         for intent in intents:
-            if not intent.post_only:
+            is_harvest = getattr(intent, "kind", "quote") == "harvest"
+            if not intent.post_only and not is_harvest:
                 raise ExecutionError(
                     f"intent for {intent.condition_id}/{intent.leg} is not post-only"
                 )
@@ -413,6 +414,8 @@ class Runner:
                     raise ExecutionError(
                         f"harvest sell at {intent.price} is below the {HARVEST_MIN_PRICE} floor"
                     )
+                # A harvest sell crosses the bid on purpose: the venue gives
+                # price improvement, so post-only would simply refuse it.
                 if intent.size <= 0:
                     raise ExecutionError("harvest sell with no size")
                 payloads.append(intent.to_payload())

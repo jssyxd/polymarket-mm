@@ -87,7 +87,7 @@ class QuoteIntent:
             "price": self.price,
             "size": self.size,
             "side": self.side,
-            "post_only": True,
+            "post_only": self.post_only,
             "tick_size": self.tick_size,
             "neg_risk": self.neg_risk,
             "condition_id": self.condition_id,

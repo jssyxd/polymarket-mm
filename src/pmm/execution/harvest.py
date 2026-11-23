@@ -23,7 +23,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 __all__ = [
     "HarvestPlan",
     "HARVEST_MIN_PRICE",
-    "passive_ask_price",
+    "harvest_price",
     "plan_harvests",
     "run_harvest",
 ]
@@ -59,26 +59,20 @@ def _f(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def passive_ask_price(
-    best_bid: float, tick: float, floor: float = HARVEST_MIN_PRICE
-) -> Optional[float]:
-    """The cheapest price a post-only sell can rest at, or None if there is none.
+def harvest_price(best_bid: float, floor: float = HARVEST_MIN_PRICE) -> Optional[float]:
+    """The limit price for a harvest sell, or None when nothing is worth hitting.
 
-    A sell below the best bid crosses it, and post-only refuses to cross. A
-    resting ask must therefore sit at `best_bid + tick` or higher. When the
-    book is already at the top of the grid (`1 - tick`), no valid passive ask
-    exists and the only exits left are paying the taker fee or settling.
+    Measured on 2026-11-24: a 0.99 limit sell in a book bidding 0.999 filled at
+    0.999 with a zero fee, because the venue gives price improvement to the
+    crossing order. So the floor is the limit, not a cap: it guarantees the
+    minimum we accept, and the book decides whether we get more.
+
+    A book whose best bid is below the floor has nothing at or above it, and
+    hitting it would sell below our minimum, so there is nothing to do.
     """
-    import math
-
-    tick = tick if tick > 0 else 0.01
-    ceiling = round(1.0 - tick, 6)
-    price = floor if best_bid <= 0 else max(floor, best_bid + tick)
-    steps = math.ceil(round(price / tick, 9))
-    price = round(steps * tick, 6)
-    if price > ceiling + 1e-9:
+    if best_bid + 1e-9 < floor:
         return None
-    return price
+    return floor
 
 
 def plan_harvests(
@@ -137,6 +131,7 @@ def run_harvest(
     force: bool = False,
     best_bids: Optional[Mapping[str, float]] = None,
     ticks: Optional[Mapping[str, float]] = None,
+    fee_bps: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Plan and place the harvest sells, returning one record per leg.
 
@@ -182,8 +177,7 @@ def run_harvest(
     results: list[dict[str, Any]] = []
     for plan in plans:
         best_bid = _best_bid(executor, plan.token_id, best_bids)
-        tick = _tick(executor, plan.token_id, ticks)
-        price = passive_ask_price(best_bid, tick, floor=min_price)
+        price = harvest_price(best_bid, floor=min_price)
         if price is None:
             results.append(
                 {
@@ -191,8 +185,20 @@ def run_harvest(
                     "size": plan.size,
                     "mark": plan.mark,
                     "best_bid": best_bid,
-                    "tick": tick,
-                    "status": "skipped: book at the ceiling, no passive ask",
+                    "status": "skipped: no bid at or above the floor",
+                }
+            )
+            continue
+        fee_bps = _fee_bps(executor, plan.token_id, fee_bps)
+        if price * (1.0 - fee_bps / 10_000.0) <= plan.avg_cost:
+            results.append(
+                {
+                    "condition_id": plan.condition_id,
+                    "size": plan.size,
+                    "mark": plan.mark,
+                    "best_bid": best_bid,
+                    "fee_bps": fee_bps,
+                    "status": "skipped: fee-adjusted proceeds do not clear cost",
                 }
             )
             continue
@@ -218,7 +224,9 @@ def run_harvest(
             "price": price,
             "size": plan.size,
             "side": "SELL",
-            "post_only": True,
+            # Crossing the bid is the point: the venue gives price
+            # improvement, so a 0.99 limit in a 0.999 book fills at 0.999.
+            "post_only": False,
         }
         try:
             payload = executor.build_payload(intent)
@@ -250,6 +258,17 @@ def _best_bid(executor: Any, token_id: str, supplied: Optional[Mapping[str, floa
     return max((float(level.get("price") or 0) for level in book.get("bids") or []), default=0.0)
 
 
+def _fee_bps(executor: Any, token_id: str, supplied: Optional[int]) -> int:
+    if supplied is not None:
+        return int(supplied)
+    from ..data.clob import get_fee_rate_bps
+
+    try:
+        return int(get_fee_rate_bps(token_id))
+    except Exception:  # noqa: BLE001 - an unknown fee is treated as the worst seen
+        return 1000
+
+
 def _tick(executor: Any, token_id: str, supplied: Optional[Mapping[str, float]]) -> float:
     if supplied is not None:
         return float(supplied.get(token_id, 0.01) or 0.01)
@@ -261,7 +280,9 @@ def _tick(executor: Any, token_id: str, supplied: Optional[Mapping[str, float]])
             "price": plan.price,
             "size": plan.size,
             "side": "SELL",
-            "post_only": True,
+            # Crossing the bid is the point: the venue gives price
+            # improvement, so a 0.99 limit in a 0.999 book fills at 0.999.
+            "post_only": False,
         }
         try:
             payload = executor.build_payload(intent)
