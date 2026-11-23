@@ -1,0 +1,10 @@
+[Unit]
+Description=Complete nearly-won Polymarket positions before resolution
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pmm
+EnvironmentFile=/etc/pmm-mm/pmm.env
+Environment=PYTHONPATH=/opt/pmm/src
+ExecStart=/opt/pmm/.venv/bin/python /opt/pmm/tools/rescue.py

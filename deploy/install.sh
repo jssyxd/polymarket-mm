@@ -52,6 +52,8 @@ install -m 644 "${APP_DIR}/deploy/pmm-selftune.service" /etc/systemd/system/pmm-
 install -m 644 "${APP_DIR}/deploy/pmm-selftune.timer" /etc/systemd/system/pmm-selftune.timer
 install -m 644 "${APP_DIR}/deploy/pmm-merge.service" /etc/systemd/system/pmm-merge.service
 install -m 644 "${APP_DIR}/deploy/pmm-merge.timer" /etc/systemd/system/pmm-merge.timer
+install -m 644 "${APP_DIR}/deploy/pmm-rescue.service" /etc/systemd/system/pmm-rescue.service
+install -m 644 "${APP_DIR}/deploy/pmm-rescue.timer" /etc/systemd/system/pmm-rescue.timer
 systemctl daemon-reload
 
 echo "==> preparing the environment file"
