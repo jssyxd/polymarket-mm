@@ -165,11 +165,15 @@ systemctl enable --now pmm-mm.service pmm-merge.timer
 | `Runner._payloads` 的 SELL 不变量 | ✅ 仅 `kind="harvest"` 允许 SELL；必须 post-only；价格 ≥0.99；size > 0 |
 | `pmm.execution.harvest.plan_harvests` | ✅ 纯函数，按 持有量 / 标记价 / 成本 / 已挂单 生成计划 |
 
-启用还差三步：
+已启用（`POLY_HARVEST=1`，2026-11-24），触发条件：
 
-1. 一个生产者：把 `plan_harvests` 的计划转成 `QuoteIntent(kind="harvest", side="SELL")`，走 `_place`。
-2. 触发条件：rescue 连续 N 次未能补腿，或补腿价高于对手方标记价。
-3. 一个开关（例如 `POLY_HARVEST=1`）加默认关闭，先 dry-run 观察一周。
+1. 单腿、≥`min_size`、标记价 ≥0.99、在 0.99 卖出仍盈利；
+2. 该 token 上没有已挂单；
+3. 存在合法的被动卖价：`max(0.99, best_bid + tick) ≤ 1 - tick`。
+
+第 3 条是关键：买一达到网格上限（例如 tick 0.001 时买一 0.999）就没有可挂的卖价，此时**跳过**，因为吃买一走 taker 在 10% 费率的市场里亏损，而等结算只差几小时。
+
+定时器 `pmm-harvest.timer` 每 10 分钟跑一次，`--dry-run` 可随时预演。
 
 ## 关键不变量
 
