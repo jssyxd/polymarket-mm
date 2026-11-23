@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pmm
-Group=pmm
+# Runs as root on the deployment box. For a hardened setup add User=pmm and
+# chown /var/lib/pmm to that account.
 WorkingDirectory=/opt/pmm
 EnvironmentFile=/etc/pmm-mm/pmm.env
 # PMM_RUN_ARGS comes from the environment file: the same unit runs paper,
