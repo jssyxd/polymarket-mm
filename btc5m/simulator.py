@@ -154,13 +154,10 @@ def book_at(rows: list[PolyBook], ts_ns: int) -> PolyBook | None:
     return rows[idx] if idx >= 0 else None
 
 
-def visible_at(book: PolyBook | None, price: float) -> float:
+def visible_ahead(book: PolyBook | None, price: float) -> float:
     if book is None:
         return 0.0
-    for level in book.bids:
-        if abs(level.price - price) < 1e-9:
-            return level.size
-    return 0.0
+    return sum(level.size for level in book.bids if level.price >= price - 1e-9)
 
 
 def build_quote(
@@ -192,8 +189,8 @@ def build_quote(
         bid_up=bid_up,
         bid_down=bid_down,
         mid=mid,
-        visible_up=visible_at(up, bid_up),
-        visible_down=visible_at(down, bid_down),
+        visible_up=visible_ahead(up, bid_up),
+        visible_down=visible_ahead(down, bid_down),
     )
 
 

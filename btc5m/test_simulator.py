@@ -93,10 +93,10 @@ def test_single_leg_win_uses_resolution(tmp_path):
     assert abs(out[0]["pnl"] - 10.2) < 1e-9
 
 
-def test_queue_model_blocks_until_visible_size_is_exhausted(tmp_path):
+def test_queue_model_counts_better_bids_ahead(tmp_path):
     rows = base_rows()
-    rows[1]["data"]["bids"] = [[0.49, 100.0]]
-    rows[2]["data"]["bids"] = [[0.49, 100.0]]
+    rows[1]["data"]["bids"] = [[0.50, 100.0], [0.49, 100.0]]
+    rows[2]["data"]["bids"] = [[0.50, 100.0], [0.49, 100.0]]
     _, out, _, _ = run(tmp_path, rows, model="queue")
     queue = [row for row in out if row["model"] == "queue"][0]
     assert queue["reason"] == "no_fill"
