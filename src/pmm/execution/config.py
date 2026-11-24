@@ -105,6 +105,7 @@ class ExecutionConfig:
     heartbeat_seconds: int = DEFAULT_HEARTBEAT_SECONDS
     post_only: bool = True
     harvest_enabled: bool = False
+    repair_enabled: bool = False
     max_batch: int = DEFAULT_MAX_BATCH
     order_ticker_seconds: float = DEFAULT_ORDER_TICKER_SECONDS
     journal_path: str = DEFAULT_JOURNAL_PATH
@@ -146,6 +147,7 @@ class ExecutionConfig:
             or DEFAULT_HEARTBEAT_SECONDS,
             post_only=_as_bool(values.get("POLY_POST_ONLY"), True),
             harvest_enabled=_as_bool(values.get("POLY_HARVEST"), False),
+            repair_enabled=_as_bool(values.get("POLY_REPAIR"), False),
             max_batch=max_batch,
             order_ticker_seconds=_as_float(
                 values.get("POLY_ORDER_TICKER_SECONDS"), DEFAULT_ORDER_TICKER_SECONDS

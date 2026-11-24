@@ -1,0 +1,10 @@
+[Unit]
+Description=Close an orphaned Polymarket leg by buying its pair
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pmm
+EnvironmentFile=/etc/pmm-mm/pmm.env
+Environment=PYTHONPATH=/opt/pmm/src
+ExecStart=/opt/pmm/.venv/bin/python /opt/pmm/tools/repair.py
