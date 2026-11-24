@@ -80,9 +80,10 @@ are the taker side.
  "up_price": 1.0, "down_price": 0.0, "outcome": "Up"}
 ```
 
-The recorder writes a resolution only after Gamma reports `closed: true`.
-Gamma's `outcomePrices` on an open market are live prices, not settlement
-prices; the recorder ignores them until close.
+The recorder writes a resolution after the CLOB market reports `closed: true`,
+using the token `winner` flags or the terminal token prices. It falls back to
+Gamma only when the CLOB read fails. Gamma's `outcomePrices` on an open market
+are live prices, not settlement prices, so the recorder ignores them until close.
 
 ## Simulator rules
 
