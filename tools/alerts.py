@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     for alert in alerts:
         if not args.dry_run:
-            journal.append("alert", kind=alert.kind, detail=alert.detail)
+            journal.append("alert", alert=alert.kind, detail=alert.detail)
         print(f"ALERT {alert.kind}: {alert.detail}")
     if not alerts:
         print("ok: no alerts")
