@@ -68,6 +68,15 @@ def predictive_table(pred: dict[str, Any] | None) -> str:
     return "\n".join(lines)
 
 
+def gap_block(gap: dict[str, Any] | None) -> str:
+    if not gap:
+        return "No gap output."
+    return (
+        f"quotes={gap.get('quotes')}, fills={gap.get('fills')}, wins={gap.get('wins')}, "
+        f"win_rate={gap.get('win_rate')}, pnl={gap.get('pnl')}, net_bps={gap.get('net_bps')}"
+    )
+
+
 def cancel_block(cancel: dict[str, Any] | None) -> str:
     if not cancel:
         return "No cancel output."
@@ -90,6 +99,7 @@ def main() -> None:
     sim = load_json(run / "sim" / "sim.json")
     pred = load_json(run / "predictive" / "predictive.json")
     cancel = load_json(run / "cancel" / "cancel.json")
+    gap = load_json(run / "gap" / "gap.json")
     lines = [
         f"# btc5m capture report: {run.name}",
         "",
@@ -105,7 +115,7 @@ def main() -> None:
     lines += [
         "", "## Simulator", "",
         "`touch` is an upper bound that assumes the new order is first in queue. `queue` subtracts the visible size ahead and is the realistic lower bound.",
-        "", sim_table(sim), "", "## Predictive", "", predictive_table(pred), "", "## Cancel harness", "", cancel_block(cancel), "",
+        "", sim_table(sim), "", "## Gap refill", "", gap_block(gap), "", "## Predictive", "", predictive_table(pred), "", "## Cancel harness", "", cancel_block(cancel), "",
         "Replay mode uses an assumed cancel delay, not a live acknowledgement. A live race needs the credited environment and a second funded account.",
         "",
     ]
