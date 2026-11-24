@@ -85,7 +85,8 @@ def main() -> None:
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args()
     run = args.run_dir
-    cov = coverage(run / "events.jsonl")
+    events = run / "events.resolved.jsonl" if (run / "events.resolved.jsonl").exists() else run / "events.jsonl"
+    cov = coverage(events)
     sim = load_json(run / "sim" / "sim.json")
     pred = load_json(run / "predictive" / "predictive.json")
     cancel = load_json(run / "cancel" / "cancel.json")
