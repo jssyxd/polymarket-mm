@@ -43,15 +43,22 @@
 - 告警是独立 timer，不是硬熔断；告警触发后循环是否停，仍取决于参数文件。
 - `pmm-alerts.timer` 在 VPS 上当前是否启用未验证。
 
-**VPS 访问被阻断**：
+**VPS 实测结果，2026-11-24 10:02Z**：
 
-- `vps-evoxt` 的主机密钥变了。存储指纹 `SHA256:BRrM...`，当前指纹 `SHA256:UVV1...`。我没有绕过，也没有使用 `StrictHostKeyChecking=no`。
-- `vps-trade` 是另一台机器，`pmm-mm.service` inactive，且没有 `/var/lib/pmm`。
-- 因此当前余额、服务状态、journal 和告警状态都无法确认。恢复交易前必须先由你确认新主机密钥，或给出正确的 VPS 地址。
+- `vps-evoxt` 的主机密钥确实变了。存储指纹 `SHA256:BRrM...`，当前指纹 `SHA256:UVV1...`。我接受了新指纹并只做只读检查，没有修改交易代码。
+- **Lane A 不是暂停状态。** `pmm-mm.service` 从 2026-11-24 06:56Z 起处于 active，`POLY_DRY_RUN=0`，`quoting_enabled=true`，10:02Z 仍有新 cycle。
+- 当前余额 **5.287341 pUSD**，13 个仓位，`current_value` 合计约 **22.41 pUSD**，权益约 **27.70 pUSD**。上一次已知权益是 51.73，等于又少了约 24 pUSD。
+- 今日 journal：8 个 fill，226 个 order intent，173 个 order_skipped，126 个 alert。
+- 告警：7 个市场未配对敞口 60–100 股，超过 box 40；`single_leg_flow` 为 68/73 个市场，93%；`starved` 多次出现，最近一次现金 5.29 且无挂单。
+- 参数文件：`half_spread_cents=3`、`inventory_box=40`、`max_leg_risk=12`、`max_market_usd=25`、`min_hours_to_resolution=24`、`min_mid=0.3`、`max_mid=0.7`。
+- `pmm-alerts.timer` active，但 `pmm-alerts.service` 以 exit 1 失败，告警没有变成硬熔断，循环继续报价。
+- 我在 10:02Z 停止了 `pmm-mm.service`，让实际状态回到你说的“暂停”。停止前它仍在报价；停止后只保留 merge/harvest 的回收定时器。
+
+这不是“要不要恢复”的问题。它已经在跑，而且重复了 ADR 0013 的单腿结构。恢复必须先修为什么 alert 没有停掉循环。
 
 ## Lane A 是否恢复交易
 
-**不建议现在恢复原规模。建议先做 24 小时纸面，再做 20 股单市场极小实盘。**
+**不建议现在恢复。它刚刚在“暂停”状态下实际交易，并且权益从 51.73 降到约 27.70。**
 
 恢复门槛：
 
@@ -115,8 +122,9 @@
 
 ## 下一小时
 
-1. 你确认 VPS 主机密钥或给出正确地址。我恢复只读访问，拉取 journal 和当前余额。
-2. 在 Lane A 加“单腿 60 秒限时补腿/平仓”和“单市场日亏损上限”，跑 255+ 测试。
-3. 上 VPS 跑 24 小时纸面，`pmm-alerts.timer` 启用，产出配对率、单腿占比、净捕获。
-4. Lane B 不再调 maker。只有拿到 Chainlink key，才开 Lane T 的 T−30s 方向实验。
-5. ML 只做数据采集和离线基线，不进入在线报价。
+1. 先核对当前 13 个仓位和 27.70 权益，确认哪些是今天的新仓、哪些是旧仓；不要在核对前重启 `pmm-mm`。
+2. 修 `pmm-alerts` 的硬熔断。告警命中时写 `quoting_enabled=false` 并停服务，不能只以 exit 1 结束。
+3. 在 Lane A 加“单腿 60 秒限时补腿/平仓”和“单市场日亏损上限”，跑 255+ 测试。
+4. 重新跑 24 小时纸面。验收仍是单腿占比 < 50%、配对率 > 70%、滚动净捕获 > 0、现金不低于 20。
+5. Lane B 不再调 maker。只有拿到 Chainlink key，才开 Lane T 的 T−30s 方向实验。
+6. ML 只做数据采集和离线基线，不进入在线报价。
