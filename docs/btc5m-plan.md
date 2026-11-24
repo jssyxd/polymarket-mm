@@ -399,7 +399,7 @@ stateDiagram-v2
 
 ## 10. 实施状态（2026-11-24）
 
-- P1 录制器：`btc5m/recorder.py`，一次 1 小时采集，Polymarket 前 50 档、OKX 前 20 档、两场馆逐笔成交、CLOB 结算。
+- P1 录制器：`btc5m/recorder.py`，一次约 46 分钟采集（12 个窗口，操作者提前停止），Polymarket 前 50 档、OKX 前 20 档、两场馆逐笔成交、CLOB 结算。
 - 离线模拟器：`btc5m/simulator.py`，输出 `touch` 与 `queue` 两套 P、单边损失、`net_bps` 分布和返点估算。
 - P3 撤单测试：`btc5m/cancel_test.py`，默认 dry-run；离线 `--replay` 用假设的撤单延迟计算自然竞速。强制 250ms 竞速仍需第二个出资账户，未执行。
 - 预测检验：`btc5m/predictive.py`，留一窗口逻辑回归。1 小时样本低于 30 个窗口，按设计返回 `inconclusive`。
