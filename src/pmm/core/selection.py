@@ -167,6 +167,7 @@ def select_quotes(
     max_spread_cents_cap: float | None = None,
     max_markets: int = 4,
     max_market_usd: float = 0.0,
+    max_leg_risk: float = 0.0,
 ) -> SelectionResult:
     """Choose the markets to quote this cycle.
 
@@ -219,13 +220,33 @@ def select_quotes(
             )
             continue
 
-        commit = _commit_usd(plan, size_shares)
+        leg_size = float(min(plan.quote.up.size, plan.quote.down.size) or size_shares)
+        # Guard B: a single-leg fill on the expensive side is the real risk,
+        # and it is `size * max(price)`. Shrinking the size is not an option
+        # below the reward minimum, so the market is skipped instead.
+        leg_risk = leg_size * max(float(plan.quote.up.price), float(plan.quote.down.price))
+        if max_leg_risk > 0.0 and leg_risk > max_leg_risk + 1e-9:
+            result.rejected.append(
+                f"{label}: a one-sided fill risks {leg_risk:.3f} pUSD on the "
+                f"expensive leg, above the cap {max_leg_risk:.3f}"
+            )
+            continue
+        commit = _commit_usd(plan, leg_size)
         # The budget model counts the cheaper leg (the pair funds itself on
         # merge), but the venue reserves both resting bids. A per-market
         # exposure cap must use what is actually at risk, so it sums both.
-        notional = float(size_shares) * (
-            float(plan.quote.up.price) + float(plan.quote.down.price)
-        )
+        leg_size = float(min(plan.quote.up.size, plan.quote.down.size) or size_shares)
+        # Guard B: a single-leg fill on the expensive side is the real risk,
+        # and it is `size * max(price)`. Shrinking the size is not an option
+        # below the reward minimum, so the market is skipped instead.
+        leg_risk = leg_size * max(float(plan.quote.up.price), float(plan.quote.down.price))
+        if max_leg_risk > 0.0 and leg_risk > max_leg_risk + 1e-9:
+            result.rejected.append(
+                f"{label}: a one-sided fill risks {leg_risk:.3f} pUSD on the "
+                f"expensive leg, above the cap {max_leg_risk:.3f}"
+            )
+            continue
+        notional = leg_size * (float(plan.quote.up.price) + float(plan.quote.down.price))
         if max_market_usd > 0.0 and notional > max_market_usd + 1e-9:
             result.rejected.append(
                 f"{label}: reserves {notional:.3f} pUSD across both legs, above "

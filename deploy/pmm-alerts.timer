@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the maker alert check every fifteen minutes
+
+[Timer]
+OnCalendar=*:0/15
+AccuracySec=20s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

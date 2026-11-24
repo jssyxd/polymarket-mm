@@ -219,6 +219,8 @@ class QuoteCycle:
             settings.get("half_spread_cents", DEFAULT_HALF_SPREAD_CENTS)
         )
         size = float(size_shares if size_shares is not None else settings.get("size_shares", DEFAULT_SIZE_SHARES))
+        min_mid = float(settings.get("min_mid", 0.0) or 0.0)
+        max_mid = float(settings.get("max_mid", 1.0) or 1.0)
         sigma_p = float(settings.get("sigma_p", 0.0) or 0.0)
         box = float(settings.get("inventory_box", 0.0) or 0.0)
 
@@ -245,6 +247,21 @@ class QuoteCycle:
                 )
 
             mid = snapshot.midpoint
+
+            # Guard A: an imbalanced book is where a paired bid degenerates
+            # into a one-sided bet. Measured on the first live run: 78% of the
+            # volume was unpaired exposure, and every large loss sat in a
+            # market whose midpoint was far from 0.5.
+            if mid < min_mid or mid > max_mid:
+                result.rejected.append(
+                    f"{snapshot.condition_id}: mid {mid:.3f} outside the "
+                    f"[{min_mid:.2f}, {max_mid:.2f}] quoting band"
+                )
+                continue
+
+            # Guard B lives in the selector: shrinking an order below the
+            # venue's reward minimum forfeits the reward that justifies the
+            # trade, so the honest bound is a risk cap on the expensive leg.
             cutoff_size = max(snapshot.reward_min_size, snapshot.min_order_size)
             fair_prob = size_cutoff_midpoint(snapshot.book_up, cutoff_size, mid)
 
@@ -309,6 +326,7 @@ class QuoteCycle:
             max_spread_cents_cap=self.max_spread_cents_cap,
             max_markets=self.max_markets,
             max_market_usd=float(settings.get("max_market_usd", 0.0) or 0.0),
+            max_leg_risk=float(settings.get("max_leg_risk", 0.0) or 0.0),
         )
         result.selection = selection
         result.intents = list(selection.intents)

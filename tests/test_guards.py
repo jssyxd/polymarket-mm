@@ -79,3 +79,55 @@ def test_a_market_that_commits_above_the_cap_is_rejected():
     uncapped = select_quotes([plan], capital_usd=1000.0, size_shares=20.0,
                              half_spread_cents=2.0, max_market_usd=0.0)
     assert uncapped.intents
+
+
+def test_a_market_outside_the_mid_band_is_not_quoted():
+    from pmm.engine.cycle import QuoteCycle
+
+    def snapshot(mid: float) -> MarketSnapshot:
+        return MarketSnapshot(
+            condition_id="0xcond", question="q", up_token_id="U", down_token_id="D",
+            midpoint=mid, tick_size=0.01, min_order_size=5.0, reward_min_size=20.0,
+            reward_max_spread_cents=4.5, rate_per_day=100.0,
+            book_up={"bids": [{"price": str(round(mid, 2)), "size": "500"}],
+                     "asks": [{"price": str(round(mid + 0.02, 2)), "size": "500"}]},
+            book_down={"bids": [{"price": str(round(1 - mid, 2)), "size": "500"}],
+                       "asks": [{"price": str(round(1 - mid + 0.02, 2)), "size": "500"}]},
+        )
+
+    params = {"min_mid": 0.30, "max_mid": 0.70, "half_spread_cents": 2.0}
+    cycle = QuoteCycle()
+
+    balanced = cycle.run([snapshot(0.52)], params, capital_usd=100.0, size_shares=20.0)
+    imbalanced = cycle.run([snapshot(0.90)], params, capital_usd=100.0, size_shares=20.0)
+
+    assert balanced.intents, "a balanced market is quoteable"
+    assert not imbalanced.intents
+    assert any("quoting band" in reason for reason in imbalanced.rejected)
+
+
+def test_a_one_sided_fill_above_the_risk_cap_skips_the_market():
+    from pmm.engine.cycle import QuoteCycle
+
+    def snapshot(mid: float) -> MarketSnapshot:
+        return MarketSnapshot(
+            condition_id="0xcond", question="q", up_token_id="U", down_token_id="D",
+            midpoint=mid, tick_size=0.01, min_order_size=5.0, reward_min_size=20.0,
+            reward_max_spread_cents=4.5, rate_per_day=100.0,
+            book_up={"bids": [{"price": str(round(mid, 2)), "size": "500"}],
+                     "asks": [{"price": str(round(mid + 0.02, 2)), "size": "500"}]},
+            book_down={"bids": [{"price": str(round(1 - mid, 2)), "size": "500"}],
+                       "asks": [{"price": str(round(1 - mid + 0.02, 2)), "size": "500"}]},
+        )
+
+    # 20 shares at 0.68 is 13.6 pUSD at risk if only that leg fills.
+    params = {"min_mid": 0.0, "max_mid": 1.0, "half_spread_cents": 2.0,
+              "max_leg_risk": 12.0}
+    cycle = QuoteCycle()
+
+    centred = cycle.run([snapshot(0.50)], params, capital_usd=100.0, size_shares=20.0)
+    leaning = cycle.run([snapshot(0.68)], params, capital_usd=100.0, size_shares=20.0)
+
+    assert centred.intents, "a balanced market stays under the cap"
+    assert not leaning.intents
+    assert any("one-sided fill risks" in reason for reason in leaning.rejected)
