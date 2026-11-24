@@ -166,6 +166,7 @@ def select_quotes(
     min_rate_per_day: float = 0.0,
     max_spread_cents_cap: float | None = None,
     max_markets: int = 4,
+    max_market_usd: float = 0.0,
 ) -> SelectionResult:
     """Choose the markets to quote this cycle.
 
@@ -219,6 +220,18 @@ def select_quotes(
             continue
 
         commit = _commit_usd(plan, size_shares)
+        # The budget model counts the cheaper leg (the pair funds itself on
+        # merge), but the venue reserves both resting bids. A per-market
+        # exposure cap must use what is actually at risk, so it sums both.
+        notional = float(size_shares) * (
+            float(plan.quote.up.price) + float(plan.quote.down.price)
+        )
+        if max_market_usd > 0.0 and notional > max_market_usd + 1e-9:
+            result.rejected.append(
+                f"{label}: reserves {notional:.3f} pUSD across both legs, above "
+                f"the per-market cap {max_market_usd:.3f}"
+            )
+            continue
         if commit > remaining + 1e-9:
             result.rejected.append(
                 f"{label}: needs {commit:.3f} pUSD, {remaining:.3f} pUSD left in the budget"

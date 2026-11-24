@@ -50,6 +50,9 @@ __all__ = [
 
 LOGGER = logging.getLogger("pmm.runner")
 
+#: Quote only markets that are at least this many hours from settlement.
+DEFAULT_MIN_HOURS_TO_RESOLUTION = 24.0
+
 #: Plan B floor: a harvest sell never rests below this price.
 HARVEST_MIN_PRICE = 0.99
 
@@ -131,10 +134,44 @@ def _best_ask(book: Mapping[str, Any]) -> float:
     return min(prices) if prices else 0.0
 
 
+def _hours_to_end(market: Mapping[str, Any], now: float) -> float | None:
+    """Hours until the market's end time, or None when it is not published."""
+    raw = str(market.get("end_date_iso") or "").strip()
+    if not raw:
+        return None
+    try:
+        import datetime as dt
+
+        stamp = dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+    return (stamp - now) / 3600.0
+
+
+def is_tradeable(market: Mapping[str, Any], *, now: float, min_hours: float) -> bool:
+    """Whether a market is worth quoting at all.
+
+    A market that does not accept orders cannot fill, and one that settles
+    within `min_hours` is where adverse selection lives: the book still shows
+    a midpoint while the outcome is already being decided, so our resting bid
+    is exactly what an informed taker hits. Measured on 2026-11-23: every
+    large loss came from a market resolving the same day it was quoted.
+    """
+    if market.get("closed") is True:
+        return False
+    if market.get("accepting_orders") is False:
+        return False
+    hours = _hours_to_end(market, now)
+    if hours is not None and hours < min_hours:
+        return False
+    return True
+
+
 def discover_markets(
     config: RunnerConfig,
     half_spread_cents: float,
     condition_ids: Sequence[str] | None = None,
+    min_hours_to_resolution: float = DEFAULT_MIN_HOURS_TO_RESOLUTION,
 ) -> list[tuple[MarketSnapshot, RewardCandidate]]:
     """Find the markets to quote this cycle.
 
@@ -165,6 +202,9 @@ def discover_markets(
             continue
         try:
             market = get_market(condition_id)
+            if not is_tradeable(market, now=time.time(), min_hours=min_hours_to_resolution):
+                LOGGER.info("skipping market %s: closed or settling soon", condition_id[:10])
+                continue
             tokens = [str(token["token_id"]) for token in market.get("tokens") or ()]
             if len(tokens) != 2:
                 continue

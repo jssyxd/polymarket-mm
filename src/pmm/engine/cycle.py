@@ -308,6 +308,7 @@ class QuoteCycle:
             min_rate_per_day=self.min_rate_per_day,
             max_spread_cents_cap=self.max_spread_cents_cap,
             max_markets=self.max_markets,
+            max_market_usd=float(settings.get("max_market_usd", 0.0) or 0.0),
         )
         result.selection = selection
         result.intents = list(selection.intents)
