@@ -152,6 +152,7 @@ class Recorder:
         self._poly_ws_ok = False
         self._poly_gen = 0
         self._poly_caches: dict[str, PolyCache] = {}
+        self._last_poly_ws_ns: dict[str, int] = {}
         self._token_to_window: dict[str, Window] = {}
 
     async def get_json(self, url: str, **kwargs: Any) -> Any:
@@ -291,19 +292,19 @@ class Recorder:
                 continue
             book = caches[token].snapshot(now_ns, window, self.args.book_levels)
             if book.bids or book.asks:
+                self._last_poly_ws_ns[window.slug] = now_ns
                 self.stats.poly_books += 1
                 self.writer.emit(poly_book_event(book))
 
     async def poly_books_loop(self) -> None:
         while not self._stop.is_set():
-            if self._poly_ws_ok:
-                await asyncio.sleep(1.0)
-                continue
             windows = self.active_windows(include_recent=5.0)
             if not windows:
                 await asyncio.sleep(0.2)
                 continue
             for window in windows:
+                if time.time_ns() - self._last_poly_ws_ns.get(window.slug, 0) < 1_000_000_000:
+                    continue
                 body = [{"token_id": window.up_token}, {"token_id": window.down_token}]
                 rows = await self.post_json(f"{CLOB}/books", body)
                 if not isinstance(rows, list):
@@ -650,7 +651,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", default="data/btc5m")
     parser.add_argument("--duration", type=float, default=3600.0)
     parser.add_argument("--asset", default="btc")
-    parser.add_argument("--poly-interval", type=float, default=0.25)
+    parser.add_argument("--poly-interval", type=float, default=0.5)
     parser.add_argument("--trades-interval", type=float, default=2.0)
     parser.add_argument("--book-levels", type=int, default=50)
     parser.add_argument("--okx-emit-interval-ms", type=float, default=100.0)
