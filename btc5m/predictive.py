@@ -103,7 +103,7 @@ def at(rows: list[Any], ts_ns: int) -> Any | None:
         return None
     stamps = [r[0] for r in rows]
     idx = bisect.bisect_right(stamps, ts_ns) - 1
-    return rows[max(idx, 0)]
+    return rows[idx] if idx >= 0 else None
 
 
 def best(bids: list[tuple[float, float]], asks: list[tuple[float, float]]) -> tuple[float, float, float, float]:

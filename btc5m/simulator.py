@@ -151,9 +151,7 @@ def book_at(rows: list[PolyBook], ts_ns: int) -> PolyBook | None:
         return None
     stamps = [row.ts_ns for row in rows]
     idx = bisect.bisect_right(stamps, ts_ns) - 1
-    if idx < 0:
-        idx = 0
-    return rows[idx]
+    return rows[idx] if idx >= 0 else None
 
 
 def visible_at(book: PolyBook | None, price: float) -> float:
@@ -235,7 +233,7 @@ def simulate_window(
             if remaining[leg] <= 0:
                 filled[leg] = True
                 fill_prices[leg] = bid
-            elif trade.size > remaining[leg] + 1e-9:
+            elif trade.size >= remaining[leg] - 1e-9:
                 filled[leg] = True
                 fill_prices[leg] = bid
             else:

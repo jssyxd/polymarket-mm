@@ -49,8 +49,8 @@ def resolution(slug="w", outcome="Up"):
 def base_rows(with_down_trade=True):
     rows = [
         window(),
-        book("w", "up", 1_006 * 10**9, [[0.49, 5.0]], [[0.51, 5.0]]),
-        book("w", "down", 1_006 * 10**9, [[0.49, 5.0]], [[0.51, 5.0]]),
+        book("w", "up", 1_004 * 10**9, [[0.49, 5.0]], [[0.51, 5.0]]),
+        book("w", "down", 1_004 * 10**9, [[0.49, 5.0]], [[0.51, 5.0]]),
     ]
     rows.append(trade("w", "up", 1_010 * 10**9, 0.49, 20.0))
     if with_down_trade:
