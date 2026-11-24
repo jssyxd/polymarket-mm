@@ -373,6 +373,8 @@ class Recorder:
                             cache = caches[inst]
                             for row in msg.get("data") or []:
                                 cache.apply(row)
+                                if cache.gapped:
+                                    raise RuntimeError(f"okx sequence gap on {inst}")
                                 now_ns = time.time_ns()
                                 if now_ns - last_emit[inst] >= self.args.okx_emit_interval_ns:
                                     last_emit[inst] = now_ns
@@ -489,6 +491,8 @@ class OkxCache:
         self.bids: dict[float, float] = {}
         self.asks: dict[float, float] = {}
         self.seq_id = 0
+        self.prev_seq_id = 0
+        self.gapped = False
 
     def apply(self, row: dict[str, Any]) -> None:
         seq = int(row.get("seqId") or 0)
@@ -496,7 +500,15 @@ class OkxCache:
         if prev == -1 or not self.bids:
             self.bids.clear()
             self.asks.clear()
+        elif self.seq_id and prev != self.seq_id:
+            self.gapped = True
+            self.bids.clear()
+            self.asks.clear()
+            self.seq_id = seq
+            self.prev_seq_id = prev
+            return
         self.seq_id = seq
+        self.prev_seq_id = prev
         for side, book in (("bids", self.bids), ("asks", self.asks)):
             for level in row.get(side) or []:
                 try:
@@ -515,7 +527,7 @@ class OkxCache:
         asks = tuple(
             Level(p, s) for p, s in sorted(self.asks.items(), key=lambda x: x[0])[:n] if s > 0
         )
-        return OkxBook(ts_ns, self.inst_id, bids, asks, self.seq_id)
+        return OkxBook(ts_ns, self.inst_id, bids, asks, self.seq_id, self.prev_seq_id)
 
 
 def _levels_to_map(raw: Any) -> dict[float, float]:

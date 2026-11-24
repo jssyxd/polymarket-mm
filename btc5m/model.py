@@ -60,6 +60,7 @@ class OkxBook:
     bids: tuple[Level, ...]
     asks: tuple[Level, ...]
     seq_id: int = 0
+    prev_seq_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,7 @@ def okx_book_event(b: OkxBook) -> dict[str, Any]:
             "bids": [[x.price, x.size] for x in b.bids],
             "asks": [[x.price, x.size] for x in b.asks],
             "seq_id": b.seq_id,
+            "prev_seq_id": b.prev_seq_id,
         },
         b.ts_ns,
     )

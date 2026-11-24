@@ -32,6 +32,14 @@ def test_okx_cache_applies_snapshot_and_deletion():
     assert [level.price for level in book.asks] == [101]
 
 
+def test_okx_cache_flags_a_sequence_gap():
+    cache = OkxCache("BTC-USDT")
+    cache.apply({"seqId": 1, "prevSeqId": -1, "bids": [["100", "2", "0", "1"]], "asks": []})
+    cache.apply({"seqId": 5, "prevSeqId": 4, "bids": [["101", "2", "0", "1"]], "asks": []})
+    assert cache.gapped is True
+    assert cache.bids == {}
+
+
 def test_parse_levels_drops_zero_sizes_and_sorts():
     levels = parse_levels([{"price": "0.5", "size": "10"}, {"price": "0.4", "size": "0"}])
     assert levels == (Level(0.5, 10.0),)
