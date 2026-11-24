@@ -292,6 +292,9 @@ def predict(row: list[float], means: list[float], stds: list[float], weights: li
 def loo(rows: list[dict[str, float]], feature_names: list[str]) -> dict[str, Any]:
     xs = [[r[name] for name in feature_names] for r in rows]
     ys = [int(r["label"]) for r in rows]
+    if len(rows) < 2:
+        majority = (max(sum(ys), len(ys) - sum(ys)) / len(ys)) if ys else 0.0
+        return {"n": len(rows), "majority_accuracy": majority, "accuracy": None, "brier": None, "auc": None, "predictions": []}
     preds = []
     for i in range(len(rows)):
         train_x = xs[:i] + xs[i + 1:]
