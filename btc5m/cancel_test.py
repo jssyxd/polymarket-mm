@@ -158,10 +158,24 @@ def run_live(client: httpx.Client, args: argparse.Namespace) -> list[Observation
         status=str(response.get("status") or ""),
     )
     if order_id:
-        time.sleep(max(args.hold_ms, 0) / 1000.0)
+        deadline = time.monotonic() + max(args.hold_ms, 0) / 1000.0
+        while time.monotonic() < deadline:
+            try:
+                state = clob.get_order(order_id)
+                matched = float(state.get("size_matched") or state.get("sizeMatched") or 0.0)
+                if matched > 0:
+                    observation.first_fill_ms = (time.time_ns() - t0) / 1e6
+                    observation.status = str(state.get("status") or "matched")
+                    break
+            except Exception:
+                pass
+            time.sleep(0.05)
         t2 = time.time_ns()
         observation.cancel_request_ms = (t2 - t0) / 1e6
-        clob.cancel_order(OrderPayload(orderID=order_id))
+        try:
+            clob.cancel_order(OrderPayload(orderID=order_id))
+        except Exception as exc:
+            observation.status = f"cancel_failed:{exc}"
         t3 = time.time_ns()
         observation.cancel_ack_ms = (t3 - t0) / 1e6
         observation.cancel_win = cancel_win(observation.cancel_ack_ms, observation.first_fill_ms)

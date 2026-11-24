@@ -277,6 +277,18 @@ def simulate_window(
     )
 
 
+def quantile(values: list[float], q: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (len(ordered) - 1) * q
+    low = int(rank)
+    high = min(low + 1, len(ordered) - 1)
+    return ordered[low] + (ordered[high] - ordered[low]) * (rank - low)
+
+
 def aggregate(rows: list[WindowResult]) -> dict[str, Any]:
     resolved = [r for r in rows if r.reason != "unresolved"]
     paired = [r for r in resolved if r.paired]
@@ -285,6 +297,8 @@ def aggregate(rows: list[WindowResult]) -> dict[str, Any]:
     notional = sum(r.notional for r in resolved)
     wv = sum(r.wv for r in resolved)
     fee_equiv = sum(r.fee_equiv for r in resolved)
+    net_bps = [r.net_bps for r in resolved if r.notional > 0]
+    single_loss = [r.pnl for r in singles]
     return {
         "windows": len(rows),
         "resolved": len(resolved),
@@ -298,6 +312,12 @@ def aggregate(rows: list[WindowResult]) -> dict[str, Any]:
         "pnl": pnl,
         "notional": notional,
         "net_bps": pnl / notional * 10_000.0 if notional > 0 else 0.0,
+        "net_bps_p10": quantile(net_bps, 0.10),
+        "net_bps_p50": quantile(net_bps, 0.50),
+        "net_bps_p90": quantile(net_bps, 0.90),
+        "single_leg_loss_p10": quantile(single_loss, 0.10),
+        "single_leg_loss_p50": quantile(single_loss, 0.50),
+        "single_leg_loss_p90": quantile(single_loss, 0.90),
         "wv": wv,
         "fee_equiv": fee_equiv,
         "rebate_t1": fee_equiv * 0.03,
