@@ -79,8 +79,12 @@ def load(path: Path) -> tuple[dict[str, WindowData], int]:
                         (ts, _levels(data.get("bids")), _levels(data.get("asks")))
                     )
             elif kind == "trade":
-                for w in windows.values():
-                    w.trades.append({"ts_ns": ts, **data})
+                slug = data.get("slug")
+                if slug in windows:
+                    windows[slug].trades.append({"ts_ns": ts, **data})
+                else:
+                    for w in windows.values():
+                        w.trades.append({"ts_ns": ts, **data})
             elif kind == "resolution" and data.get("slug") in windows:
                 windows[data["slug"]].outcome = data.get("outcome")
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
