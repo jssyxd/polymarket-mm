@@ -97,8 +97,8 @@ The simulator is deliberately conservative about what it can claim.
   bid price. A `BUY` print cannot fill a resting bid.
 - Two fill models are reported separately:
   - `touch`: first qualifying print fills the whole quote. Upper bound.
-  - `queue`: subtract the visible size at the bid price at quote time from
-    cumulative qualifying volume; fill only after that size is exhausted.
+  - `queue`: subtract every visible bid at or above our price at quote time
+    from cumulative qualifying volume; fill only after that size is exhausted.
     Lower bound.
 - If one leg fills and the other does not, value the filled leg at the
   resolution payout (`1` for the winning outcome, `0` for the losing one).
