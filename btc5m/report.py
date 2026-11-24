@@ -73,7 +73,7 @@ def cancel_block(cancel: dict[str, Any] | None) -> str:
         return "No cancel output."
     s = cancel.get("summary", {})
     return (
-        f"observations={s.get('observations')}, races={s.get('races')}, wins={s.get('wins')}, "
+        f"mode={s.get('mode')}, observations={s.get('observations')}, races={s.get('races')}, wins={s.get('wins')}, "
         f"win_rate={s.get('win_rate')}, cancel p50={s.get('cancel_ack_ms_p50')} ms, "
         f"cancel p99={s.get('cancel_ack_ms_p99')} ms"
     )

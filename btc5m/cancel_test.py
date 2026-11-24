@@ -225,19 +225,20 @@ def replay(events_path: Path, args: argparse.Namespace) -> list[Observation]:
             token_id=up_token,
             price=price,
             size=args.size,
-            cancel_request_ms=(cancel_ns - start_ns) / 1e6,
-            cancel_ack_ms=(ack_ns - start_ns) / 1e6,
-            first_fill_ms=(first_fill - start_ns) / 1e6 if first_fill else None,
+            cancel_request_ms=args.hold_ms,
+            cancel_ack_ms=args.hold_ms + args.assumed_ack_ms,
+            first_fill_ms=(first_fill - quote_ts) / 1e6 if first_fill else None,
             status="replay",
-            cancel_win=cancel_win((ack_ns - start_ns) / 1e6, (first_fill - start_ns) / 1e6 if first_fill else None),
+            cancel_win=cancel_win(args.hold_ms + args.assumed_ack_ms, (first_fill - quote_ts) / 1e6 if first_fill else None),
         ))
     return out
 
 
-def summarize(rows: list[Observation]) -> dict[str, Any]:
+def summarize(rows: list[Observation], mode: str = "unknown") -> dict[str, Any]:
     races = [r for r in rows if r.first_fill_ms is not None]
     wins = [r for r in races if r.cancel_win is True]
     return {
+        "mode": mode,
         "observations": len(rows),
         "races": len(races),
         "wins": len(wins),
@@ -287,9 +288,11 @@ def main() -> None:
             raise SystemExit(2)
     if args.replay:
         rows = replay(args.replay, args)
+        mode = "replay"
     elif args.live:
         with httpx.Client() as client:
             rows = run_live(client, args)
+        mode = "live"
     else:
         with httpx.Client() as client:
             window = discover_window(client, args.slug)
@@ -297,7 +300,8 @@ def main() -> None:
             price = max(window["tick_size"], round(best_bid - args.price_offset, 2))
             print(f"[dry-run] {window['slug']} best_bid={best_bid:.2f} would_quote={price:.2f} size={max(window['min_size'], args.size):g}", flush=True)
             rows = []
-    summary = summarize(rows)
+        mode = "dry-run"
+    summary = summarize(rows, mode)
     write_outputs(Path(args.out), rows, summary)
     print(json.dumps(summary, indent=2))
 
