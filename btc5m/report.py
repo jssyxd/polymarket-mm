@@ -102,7 +102,13 @@ def main() -> None:
     ]
     for row in cov["windows"]:
         lines.append(f"| {row['slug']} | {row['books']} | {row['first_offset']} | {row['last_offset']} |")
-    lines += ["", "## Simulator", "", sim_table(sim), "", "## Predictive", "", predictive_table(pred), "", "## Cancel harness", "", cancel_block(cancel), ""]
+    lines += [
+        "", "## Simulator", "",
+        "`touch` is an upper bound that assumes the new order is first in queue. `queue` subtracts the visible size ahead and is the realistic lower bound.",
+        "", sim_table(sim), "", "## Predictive", "", predictive_table(pred), "", "## Cancel harness", "", cancel_block(cancel), "",
+        "Replay mode uses an assumed cancel delay, not a live acknowledgement. A live race needs the credited environment and a second funded account.",
+        "",
+    ]
     args.out.write_text("\n".join(lines), encoding="utf-8")
     print(f"wrote {args.out}")
 
