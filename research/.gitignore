@@ -1,0 +1,21 @@
+# credentials — never commit
+bybitAPIkeys.txt
+.research/credentials.md
+*.pem
+*.key
+
+# nested, independent git repositories (each has its own remote)
+/GLFTmm/
+/asgrid-mm/
+/mm/
+/polymarket-mm/
+
+# agent / harness state
+/.pi/
+/.herd-dispatch/
+
+# python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
