@@ -35,6 +35,18 @@
 - Polymarket 前 20 档深度失衡、30s 成交流失衡。
 - swap 深度失衡。
 
+## 定义
+
+- `mid = (best_bid + best_ask) / 2`
+- `microprice = (best_bid * ask_size + best_ask * bid_size) / (bid_size + ask_size)`
+- 深度失衡 `= (bid_depth_20 - ask_depth_20) / (bid_depth_20 + ask_depth_20)`
+- OFI 用 Cont-Kukanov-Stoikov 的最优档增量：买价上移记新增买量，买价下移记减少买量；
+  卖价下移记新增卖量，卖价上移记减少卖量。1s/5s/30s 分别求和。
+- 成交流失衡 `= (buy_volume - sell_volume) / (buy_volume + sell_volume)`，按 taker 方向。
+- `p_okx = Phi(ln(S_t / S_0) / (sigma * sqrt(tau)))`，`sigma` 是 60 秒已实现波动，
+  `tau` 是剩余秒数。`p_okx` 是 OKX 代理概率，不是 Chainlink 结算概率。
+- `divergence = poly_mid - p_okx`。
+
 ## 模型与验证
 
 - 基线：永远预测多数类。
