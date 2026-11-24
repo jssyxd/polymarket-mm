@@ -1,6 +1,6 @@
 import json
 from btc5m.model import Level, OkxBook, Window, parse_levels, top
-from btc5m.recorder import OkxCache, _parse_poly_trade, _parse_resolution, parse_window
+from btc5m.recorder import OkxCache, _parse_clob_resolution, _parse_poly_trade, _parse_resolution, parse_window
 
 
 def test_parse_window_maps_outcomes_and_tokens():
@@ -73,3 +73,28 @@ def test_resolution_ignores_open_market_prices():
     closed_row = {"closed": True, "outcomePrices": json.dumps(["1", "0"])}
     resolved = _parse_resolution(closed_row, window)
     assert resolved is not None and resolved.outcome == "Up"
+
+
+def test_parse_clob_resolution_uses_winner_flags():
+    window = parse_window(
+        {
+            "slug": "btc-updown-5m-100",
+            "conditionId": "0xabc",
+            "clobTokenIds": json.dumps(["up", "down"]),
+            "outcomes": json.dumps(["Up", "Down"]),
+            "eventStartTime": "2026-11-24T00:00:00Z",
+            "endDate": "2026-11-24T00:05:00Z",
+        },
+        100,
+    )
+    row = {
+        "closed": True,
+        "tokens": [
+            {"outcome": "Up", "price": 0.0, "winner": False},
+            {"outcome": "Down", "price": 1.0, "winner": True},
+        ],
+    }
+    resolved = _parse_clob_resolution(row, window)
+    assert resolved is not None
+    assert resolved.outcome == "Down"
+    assert resolved.down_price == 1.0
