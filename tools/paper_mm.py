@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
                     "size": args.size,
                     "buy": buy.price,
                     "sell": sell.price,
-                    "spread": round(sell.best - buy.best, 6),
+                    "spread": round(buy.best - sell.best, 6),
                     "buy_slippage": buy.slippage,
                     "sell_slippage": sell.slippage,
                     "fee": round(buy.fee + sell.fee, 6),
