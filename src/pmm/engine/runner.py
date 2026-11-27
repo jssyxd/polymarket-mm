@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -111,6 +111,7 @@ class RunnerConfig:
     reprice_ticks: float = 1.0
     max_markets: int = 4
     min_hours_to_resolution: float = DEFAULT_MIN_HOURS_TO_RESOLUTION
+    paper_best_bid: bool = False
 
 
 def _rate_of(row: dict) -> float:
@@ -174,7 +175,7 @@ def is_tradeable(market: Mapping[str, Any], *, now: float, min_hours: float) -> 
 #: per candidate. Measured 2026-11-27: ~200 s per cycle, which made a 20-second
 #: quote interval meaningless. Candidates change slowly; the books do not.
 _DISCOVERY_CACHE: dict[tuple, tuple[float, list]] = {}
-DISCOVERY_TTL_SECONDS = 300.0
+DISCOVERY_TTL_SECONDS = 1800.0
 
 
 def clear_discovery_cache() -> None:
@@ -592,6 +593,39 @@ class Runner:
 
     # -- paper mode -------------------------------------------------------
 
+    def _paper_quotes_at_best_bid(
+        self, intents: Sequence[QuoteIntent], pairs: Sequence[tuple[MarketSnapshot, RewardCandidate]]
+    ) -> list[QuoteIntent]:
+        """Paper-only override: rest each quote on its own best bid.
+
+        The normal builder floors the half-spread at one tick, which is one
+        tick below the best bid on a one-tick market. This override is for
+        testing queue placement; it does not change live quoting.
+        """
+        books = {snapshot.condition_id: snapshot for snapshot, _ in pairs}
+        grouped: dict[str, dict[str, QuoteIntent]] = {}
+        for intent in intents:
+            grouped.setdefault(intent.condition_id, {})[intent.leg] = intent
+        out: list[QuoteIntent] = []
+        for condition_id, legs in grouped.items():
+            snapshot = books.get(condition_id)
+            if snapshot is None:
+                continue
+            prices: dict[str, float] = {}
+            for leg in ("up", "down"):
+                book = snapshot.book_up if leg == "up" else snapshot.book_down
+                levels = [float(level.get("price") or 0) for level in (book or {}).get("bids") or []]
+                best = max(levels) if levels else 0.0
+                if best > 0.0:
+                    prices[leg] = best
+            if set(prices) != {"up", "down"}:
+                continue
+            if prices["up"] + prices["down"] > 1.0 - snapshot.tick_size + 1e-9:
+                continue
+            for leg, intent in legs.items():
+                out.append(replace(intent, price=prices[leg], reason=f"{intent.reason};paper_best_bid"))
+        return out
+
     def _record_paper_fills(
         self, intents: Sequence[QuoteIntent], pairs: Sequence[tuple[MarketSnapshot, RewardCandidate]]
     ) -> None:
@@ -695,6 +729,8 @@ class Runner:
             equity_usd=self.runner_config.capital_usd,
         )
 
+        if self.runner_config.paper and self.runner_config.paper_best_bid:
+            result.intents = self._paper_quotes_at_best_bid(result.intents, pairs)
         self._reconcile(result.intents)
         self._place(result.intents)
         self._sync_fills()
