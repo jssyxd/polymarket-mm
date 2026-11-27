@@ -169,11 +169,23 @@ def is_tradeable(market: Mapping[str, Any], *, now: float, min_hours: float) -> 
     return True
 
 
+#: Discovery is the expensive part of a cycle: one list call plus three reads
+#: per candidate. Measured 2026-11-27: ~200 s per cycle, which made a 20-second
+#: quote interval meaningless. Candidates change slowly; the books do not.
+_DISCOVERY_CACHE: dict[tuple, tuple[float, list]] = {}
+DISCOVERY_TTL_SECONDS = 300.0
+
+
+def clear_discovery_cache() -> None:
+    _DISCOVERY_CACHE.clear()
+
+
 def discover_markets(
     config: RunnerConfig,
     half_spread_cents: float,
     condition_ids: Sequence[str] | None = None,
     min_hours_to_resolution: float = DEFAULT_MIN_HOURS_TO_RESOLUTION,
+    ttl_seconds: float = DISCOVERY_TTL_SECONDS,
 ) -> list[tuple[MarketSnapshot, RewardCandidate]]:
     """Find the markets to quote this cycle.
 
@@ -181,6 +193,19 @@ def discover_markets(
     profitable ones are pulled first. With ``condition_ids`` only those
     markets are read.
     """
+    cache_key = (
+        config.top,
+        config.min_rate_per_day,
+        config.max_spread_cents_cap,
+        config.size_shares,
+        min_hours_to_resolution,
+        tuple(condition_ids or ()),
+    )
+    now = time.monotonic()
+    cached = _DISCOVERY_CACHE.get(cache_key)
+    if ttl_seconds > 0 and cached and now - cached[0] < ttl_seconds:
+        return list(cached[1])
+
     if condition_ids:
         rows = []
         for condition_id in condition_ids:
@@ -238,6 +263,8 @@ def discover_markets(
             midpoint=mid_up,
         )
         found.append((snapshot, candidate))
+    if ttl_seconds > 0:
+        _DISCOVERY_CACHE[cache_key] = (time.monotonic(), list(found))
     return found
 
 

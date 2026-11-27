@@ -468,3 +468,24 @@ def test_live_inventory_is_read_from_the_venue_not_the_journal(tmp_path):
     position = inventory[snapshot.condition_id]
     assert position.up_shares == 20.0
     assert position.down_shares == 0.0
+
+
+def test_discovery_is_cached_within_the_ttl(monkeypatch):
+    from pmm.engine import runner as runner_mod
+
+    calls = {"n": 0}
+
+    def fake_markets():
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(runner_mod, "list_reward_markets", fake_markets)
+    runner_mod.clear_discovery_cache()
+    cfg = RunnerConfig(capital_usd=25.0, size_shares=20.0, top=3)
+
+    runner_mod.discover_markets(cfg, 3.0, None, 24.0, ttl_seconds=300)
+    runner_mod.discover_markets(cfg, 3.0, None, 24.0, ttl_seconds=300)
+    assert calls["n"] == 1, "the second call inside the TTL must not re-list"
+
+    runner_mod.discover_markets(cfg, 3.0, None, 24.0, ttl_seconds=0)
+    assert calls["n"] == 2, "a zero TTL always re-lists"
