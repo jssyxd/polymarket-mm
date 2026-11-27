@@ -25,7 +25,7 @@ __all__ = [
 ]
 
 #: How long a leg may stand alone before the pair is forced closed.
-DEFAULT_MAX_AGE_SECONDS = 900.0
+DEFAULT_MAX_AGE_SECONDS = 60.0
 
 #: A leg must be closed before its market resolves. A fill on a 25-hour market
 #: is otherwise carried into settlement, which is the realised loss in 0014.

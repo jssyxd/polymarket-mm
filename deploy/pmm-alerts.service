@@ -7,4 +7,4 @@ Type=oneshot
 WorkingDirectory=/opt/pmm
 EnvironmentFile=/etc/pmm-mm/pmm.env
 Environment=PYTHONPATH=/opt/pmm/src
-ExecStart=/opt/pmm/.venv/bin/python /opt/pmm/tools/alerts.py
+ExecStart=/opt/pmm/.venv/bin/python /opt/pmm/tools/alerts.py --check-timers

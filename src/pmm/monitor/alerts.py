@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
-__all__ = ["Alert", "evaluate"]
+__all__ = ["Alert", "evaluate", "timer_alerts"]
 
 #: Below this much free collateral the loop cannot fund a paired order.
 CASH_FLOOR = 20.0
@@ -84,5 +84,22 @@ def evaluate(
                     f"{single}/{len(by_market)} traded markets filled only one leg "
                     f"({share:.0%}): the pair premise is not holding",
                 )
+            )
+    return alerts
+
+
+def timer_alerts(states: Mapping[str, str], required: Sequence[str]) -> list[Alert]:
+    """A recycling timer that is not active is a silent capital leak.
+
+    `pmm-merge.timer` was observed dead for 47 minutes with `Trigger: n/a`
+    after a single run. Nothing noticed, because nothing watched the timers
+    themselves.
+    """
+    alerts: list[Alert] = []
+    for unit in required:
+        state = str(states.get(unit) or "unknown")
+        if state != "active":
+            alerts.append(
+                Alert("timer_inactive", f"{unit} is {state}: recycling is not scheduled")
             )
     return alerts

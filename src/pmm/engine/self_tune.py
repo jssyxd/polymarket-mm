@@ -31,6 +31,7 @@ __all__ = [
     "build_state",
     "load_params",
     "net_capture_series",
+    "disable_quoting",
     "run_self_tune",
     "write_params",
 ]
@@ -85,6 +86,21 @@ def write_params(path: str | os.PathLike[str], params: Mapping[str, Any]) -> str
         os.fsync(handle.fileno())
     os.replace(temp_path, file_path)
     return str(file_path)
+
+
+def disable_quoting(path: str | os.PathLike[str], reason: str = "") -> dict[str, Any]:
+    """Turn quoting off in the parameter file and return the written params.
+
+    The quote loop reads the file at the top of every cycle, so this is the
+    smallest hard stop that does not race a live process. The caller is
+    responsible for logging the alert that caused it.
+    """
+    params = load_params(path)
+    params["quoting_enabled"] = False
+    if reason:
+        params["quoting_disabled_reason"] = reason
+    write_params(path, params)
+    return params
 
 
 def net_capture_series(fills: list[dict]) -> list[float]:

@@ -39,3 +39,14 @@ def test_mostly_one_sided_flow_alerts():
     )
 
     assert [a.kind for a in alerts] == ["single_leg_flow"]
+
+
+def test_a_dead_recycling_timer_alerts():
+    from pmm.monitor.alerts import timer_alerts
+
+    required = ["pmm-merge.timer", "pmm-redeem.timer"]
+    assert timer_alerts({"pmm-merge.timer": "active", "pmm-redeem.timer": "active"}, required) == []
+
+    alerts = timer_alerts({"pmm-merge.timer": "inactive", "pmm-redeem.timer": "active"}, required)
+    assert [a.kind for a in alerts] == ["timer_inactive"]
+    assert "pmm-merge.timer" in alerts[0].detail

@@ -17,14 +17,17 @@ from pmm.execution.clob import OrderExecutor  # noqa: E402
 from pmm.execution.config import ExecutionConfig  # noqa: E402
 from pmm.execution.journal import Journal  # noqa: E402
 from pmm.execution.positions import read_positions  # noqa: E402
-from pmm.monitor.alerts import evaluate  # noqa: E402
-from pmm.engine.self_tune import load_params  # noqa: E402
+from pmm.monitor.alerts import evaluate, timer_alerts  # noqa: E402
+from pmm.engine.self_tune import disable_quoting, load_params  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--params", default=None)
     parser.add_argument("--dry-run", action="store_true", help="report, journal nothing")
+    parser.add_argument("--check-timers", action="store_true",
+                        help="also verify the recycling timers are active (VPS only)")
+    parser.add_argument("--no-pause", action="store_true", help="do not disable quoting on alert")
     args = parser.parse_args(argv)
 
     config = ExecutionConfig.from_env()
@@ -48,13 +51,33 @@ def main(argv: list[str] | None = None) -> int:
         inventory_box=box,
         fills=journal.fills(),
     )
+    if args.check_timers:
+        import subprocess
+
+        required = ["pmm-merge.timer", "pmm-redeem.timer", "pmm-alerts.timer"]
+        states = {}
+        for unit in required:
+            try:
+                states[unit] = subprocess.run(
+                    ["systemctl", "is-active", unit], capture_output=True, text=True, timeout=10
+                ).stdout.strip()
+            except Exception:
+                states[unit] = "unknown"
+        alerts = alerts + timer_alerts(states, required)
+
     for alert in alerts:
         if not args.dry_run:
             journal.append("alert", alert=alert.kind, detail=alert.detail)
         print(f"ALERT {alert.kind}: {alert.detail}")
     if not alerts:
         print("ok: no alerts")
-    return 0 if not alerts else 1
+        return 0
+    if not args.dry_run and not args.no_pause:
+        params_path = args.params or __import__("os").environ.get("POLY_PARAMS_PATH", "")
+        if params_path:
+            disable_quoting(params_path, reason=alerts[0].kind)
+            print("quoting disabled in the parameter file")
+    return 1
 
 
 if __name__ == "__main__":

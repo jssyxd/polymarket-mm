@@ -46,6 +46,7 @@ import argparse
 import json
 import logging
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -77,6 +78,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--top", type=int, default=10, help="candidate markets to score")
     parser.add_argument("--min-rate", type=float, default=50.0, help="minimum reward rate per day")
     parser.add_argument("--max-spread", type=float, default=4.5, help="maximum reward spread band, cents")
+    parser.add_argument("--min-hours", type=float, default=24.0, help="minimum hours to resolution")
+    parser.add_argument("--ignore-reward-min", action="store_true", help="paper only: ignore reward min size")
     parser.add_argument("--replay", default=None, help="replay a recorded book file")
     parser.add_argument("--reports", default=DEFAULT_REPORTS_DIR, help="report directory")
     return parser.parse_args(argv)
@@ -136,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         paper=args.paper,
         min_rate_per_day=args.min_rate,
         max_spread_cents_cap=args.max_spread,
+        min_hours_to_resolution=args.min_hours,
     )
 
     journal = Journal(config.journal_path)
@@ -145,7 +149,18 @@ def main(argv: list[str] | None = None) -> int:
         source = replay_source(args.replay)
     else:
         half_spread = float(params.get("half_spread_cents", 1.0) or 1.0)
-        source = lambda: discover_markets(runner_config, half_spread, condition_ids)
+        source = lambda: discover_markets(
+            runner_config,
+            half_spread,
+            condition_ids,
+            min_hours_to_resolution=runner_config.min_hours_to_resolution,
+        )
+    if args.ignore_reward_min:
+        raw_source = source
+        source = lambda: [
+            (replace(snapshot, reward_min_size=0.0), candidate)
+            for snapshot, candidate in raw_source()
+        ]
 
     runner = Runner(
         config,

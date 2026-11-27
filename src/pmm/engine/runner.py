@@ -110,6 +110,7 @@ class RunnerConfig:
     paper: bool = False
     reprice_ticks: float = 1.0
     max_markets: int = 4
+    min_hours_to_resolution: float = DEFAULT_MIN_HOURS_TO_RESOLUTION
 
 
 def _rate_of(row: dict) -> float:
@@ -673,7 +674,11 @@ class Runner:
             pairs = list(self.market_source())
         else:
             half_spread = float(self.params.get("half_spread_cents", 1.0) or 1.0)
-            pairs = discover_markets(self.runner_config, half_spread)
+            pairs = discover_markets(
+                self.runner_config,
+                half_spread,
+                min_hours_to_resolution=self.runner_config.min_hours_to_resolution,
+            )
 
         snapshots = [snapshot for snapshot, _ in pairs]
         candidates = [candidate for _, candidate in pairs]
