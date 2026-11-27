@@ -48,3 +48,14 @@ def test_a_pair_that_would_cost_more_than_one_is_not_repaired():
 
 def test_without_the_missing_asks_nothing_is_planned():
     assert plan_repairs([_pos()], now=NOW, max_age_seconds=900) == []
+
+
+def test_a_leg_is_closed_before_its_market_resolves():
+    import datetime as dt
+
+    row = _pos(entered=NOW - 60)  # young: the age rule would leave it alone
+    row["end_date"] = dt.datetime.fromtimestamp(NOW + 2 * 3600, dt.timezone.utc).strftime("%Y-%m-%d")
+
+    plans = plan_repairs([row], complement_asks={"0xcond": 0.52}, now=NOW, max_age_seconds=900)
+
+    assert len(plans) == 1, "a market resolving in two hours must not carry a single leg in"

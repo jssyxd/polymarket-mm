@@ -27,6 +27,10 @@ __all__ = [
 #: How long a leg may stand alone before the pair is forced closed.
 DEFAULT_MAX_AGE_SECONDS = 900.0
 
+#: A leg must be closed before its market resolves. A fill on a 25-hour market
+#: is otherwise carried into settlement, which is the realised loss in 0014.
+DEFAULT_RESOLUTION_WINDOW_HOURS = 6.0
+
 #: A complete set redeems for 1 pUSD, so the pair must cost at most that.
 DEFAULT_MAX_PAIR_COST = 1.0
 
@@ -45,6 +49,20 @@ class RepairPlan:
     age_seconds: float
 
 
+def _hours_left(row: Mapping[str, Any], now: float) -> float:
+    """Hours until the market's end date; a published date resolves at 00:00Z."""
+    raw = str(row.get("end_date") or "").strip()[:10]
+    if not raw:
+        return 10**9
+    try:
+        import datetime as dt
+
+        end = dt.datetime.fromisoformat(raw).replace(tzinfo=dt.timezone.utc).timestamp()
+    except ValueError:
+        return 10**9
+    return (end - now) / 3600.0
+
+
 def _f(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -61,6 +79,7 @@ def plan_repairs(
     max_age_seconds: float = DEFAULT_MAX_AGE_SECONDS,
     max_pair_cost: float = DEFAULT_MAX_PAIR_COST,
     min_size: float = 5.0,
+    resolution_window_hours: float = DEFAULT_RESOLUTION_WINDOW_HOURS,
 ) -> list[RepairPlan]:
     """Legs that have stood alone too long and can still be paired profitably.
 
@@ -105,7 +124,10 @@ def plan_repairs(
             continue
         entered = _f(row.get("first_entry_at"))
         age = max(0.0, now - entered) if entered > 0 else 0.0
-        if entered > 0 and age < max_age_seconds:
+        # Either the leg has stood alone too long, or its market is about to
+        # resolve. The second condition is the one that bounds the loss.
+        nearing = _hours_left(row, now) <= resolution_window_hours
+        if not nearing and (entered <= 0 or age < max_age_seconds):
             continue
         plans.append(
             RepairPlan(
