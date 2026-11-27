@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from pmm.core.market import MarketSnapshot  # noqa: E402
 from pmm.core.selection import QuoteIntent  # noqa: E402
 from pmm.data.clob import CLOBError  # noqa: E402
+from pmm.data.public_trades import PublicTrade  # noqa: E402
 from pmm.engine.cycle import QuoteCycle  # noqa: E402
 from pmm.engine.runner import Runner, RunnerConfig  # noqa: E402
 from pmm.engine.self_tune import (  # noqa: E402
@@ -277,13 +279,23 @@ def test_the_runner_continues_in_dry_run_without_an_owner_key(tmp_path, caplog):
     assert all(payload["post_only"] for payload in executor.payloads)
 
 
-def test_paper_mode_records_the_fill_the_book_would_have_given(tmp_path):
-    # The UP book is wide and its ask sits on top of our resting bid, which is
-    # exactly the state a resting buy fills in.
+def test_paper_mode_records_the_fill_the_book_would_have_given(tmp_path, monkeypatch):
+    # The UP book has 100 shares ahead of the quote, so the taker sell must be
+    # larger than that before our 20-share bid fills.
     snapshot = _snapshot(
         midpoint=0.46,
         book_up={"bids": [{"price": "0.50", "size": "100"}], "asks": [{"price": "0.42", "size": "100"}]},
     )
+    trade = PublicTrade(
+        trade_id="paper-trade",
+        condition_id="0xabc",
+        token_id="111",
+        side="SELL",
+        price=0.45,
+        size=200.0,
+        ts=time.time() + 5.0,
+    )
+    monkeypatch.setattr("pmm.engine.runner.get_recent_trades", lambda *args, **kwargs: [trade])
     journal = Journal(tmp_path / "journal")
     runner = Runner(
         _config(str(tmp_path / "journal")),
@@ -301,6 +313,7 @@ def test_paper_mode_records_the_fill_the_book_would_have_given(tmp_path):
     assert fills[0]["paper"] is True
     assert fills[0]["outcome"] == "Up"
     assert fills[0]["side"] == "BUY"
+    assert fills[0]["trade_id"] == "paper-trade"
 
 
 def test_a_network_error_does_not_take_the_service_down(tmp_path):

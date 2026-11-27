@@ -31,6 +31,7 @@ from ..core.inventory import PairedInventory
 from ..core.market import MarketSnapshot
 from ..core.selection import QuoteIntent
 from ..data.clob import CLOBError, get_book, get_market, get_midpoint, list_reward_markets
+from ..data.public_trades import PublicTradesError, get_recent_trades
 from ..data.universe import RewardCandidate, market_meta, score_candidate
 from ..execution.clob import ExecutionError, Heartbeat, OrderExecutor
 from ..execution.positions import read_positions
@@ -38,6 +39,7 @@ from ..execution.trades import sync_fills
 from ..execution.config import ExecutionConfig
 from ..execution.journal import Journal, compute_pnl
 from .cycle import QuoteCycle
+from .paper_fills import consume, queue_ahead
 from .self_tune import load_params, net_capture_series
 
 __all__ = [
@@ -279,6 +281,8 @@ class Runner:
         # same leg as a quote buy, and the two must not cancel each other.
         self._resting: dict[tuple[str, str, str], dict[str, Any]] = {}
         self._paper_filled: set[tuple[str, str, float]] = set()
+        self._paper_queue: dict[tuple[str, str, float], dict[str, Any]] = {}
+        self._paper_placed_at: dict[tuple[str, str, float], float] = {}
         self._running = False
         self.live_refused = False
         self._refusal_announced = False
@@ -534,6 +538,10 @@ class Runner:
                 "size": intent.size,
                 "order_id": order_id,
             }
+            if self.runner_config.paper:
+                key = (intent.condition_id, intent.leg, round(intent.price, 6))
+                self._paper_placed_at[key] = time.time()
+                self._paper_queue.pop(key, None)
 
     def _sync_fills(self) -> None:
         """Record the venue's fills. Live only: a paper run fills nothing."""
@@ -559,23 +567,57 @@ class Runner:
     def _record_paper_fills(
         self, intents: Sequence[QuoteIntent], pairs: Sequence[tuple[MarketSnapshot, RewardCandidate]]
     ) -> None:
-        """Record the fills the live book would have produced.
+        """Record paper fills from the public trade tape and the queue ahead.
 
-        A resting bid at price P is filled when the book offers to sell at P
-        or better. Nothing is sent to the exchange.
+        A resting bid at P fills only after taker SELL volume at or below P
+        consumes the visible size at or above P. The queue is sampled when the
+        quote is first seen; later cancellations or new size in front are not
+        modeled, which keeps the result conservative.
         """
         books = {snapshot.condition_id: snapshot for snapshot, _ in pairs}
+        trades_by_market: dict[str, list] = {}
+        now = time.time()
         for intent in intents:
             snapshot = books.get(intent.condition_id)
             if snapshot is None:
                 continue
-            book = snapshot.book_up if intent.leg == "up" else snapshot.book_down
-            ask = _best_ask(book)
-            if ask <= 0.0 or ask > intent.price + 1e-12:
-                continue
             key = (intent.condition_id, intent.leg, round(intent.price, 6))
             if key in self._paper_filled:
                 continue
+            state = self._paper_queue.get(key)
+            if state is None:
+                book = snapshot.book_up if intent.leg == "up" else snapshot.book_down
+                ahead = queue_ahead(book, intent.price)
+                state = {
+                    "ahead": ahead,
+                    "initial_ahead": ahead,
+                    "placed_ts": self._paper_placed_at.get(key, now),
+                    "seen": set(),
+                    "filled": False,
+                }
+                self._paper_queue[key] = state
+            if state["filled"]:
+                continue
+            if intent.condition_id not in trades_by_market:
+                try:
+                    trades_by_market[intent.condition_id] = get_recent_trades(
+                        intent.condition_id, limit=500
+                    )
+                except PublicTradesError as exc:
+                    LOGGER.warning("paper trade tape unavailable: %s", exc)
+                    trades_by_market[intent.condition_id] = []
+            remaining, fill = consume(
+                float(state["ahead"]),
+                trades_by_market[intent.condition_id],
+                price=intent.price,
+                token_id=intent.token_id,
+                placed_ts=float(state["placed_ts"]),
+                seen=state["seen"],
+            )
+            state["ahead"] = remaining
+            if fill is None:
+                continue
+            state["filled"] = True
             self._paper_filled.add(key)
             self.journal.append(
                 "fill",
@@ -587,7 +629,10 @@ class Runner:
                 size=intent.size,
                 notional=intent.price * intent.size,
                 paper=True,
-                book_ask=ask,
+                trade_id=fill.trade_id,
+                queue_ahead=state.get("initial_ahead", 0.0),
+                fill_trade_size=fill.size,
+                fill_trade_price=fill.price,
             )
 
     # -- one cycle --------------------------------------------------------

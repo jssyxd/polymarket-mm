@@ -75,6 +75,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--interval", type=float, default=5.0, help="seconds between cycles")
     parser.add_argument("--markets", default="", help="comma separated condition ids")
     parser.add_argument("--top", type=int, default=10, help="candidate markets to score")
+    parser.add_argument("--min-rate", type=float, default=50.0, help="minimum reward rate per day")
     parser.add_argument("--replay", default=None, help="replay a recorded book file")
     parser.add_argument("--reports", default=DEFAULT_REPORTS_DIR, help="report directory")
     return parser.parse_args(argv)
@@ -132,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         interval_seconds=args.interval,
         top=args.top,
         paper=args.paper,
+        min_rate_per_day=args.min_rate,
     )
 
     journal = Journal(config.journal_path)
