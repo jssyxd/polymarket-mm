@@ -81,6 +81,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-hours", type=float, default=24.0, help="minimum hours to resolution")
     parser.add_argument("--ignore-reward-min", action="store_true", help="paper only: ignore reward min size")
     parser.add_argument("--paper-best-bid", action="store_true", help="paper only: rest on best bid")
+    parser.add_argument("--paper-best-bid-offset", type=int, default=0, help="paper only: best bid plus this many ticks")
     parser.add_argument("--replay", default=None, help="replay a recorded book file")
     parser.add_argument("--reports", default=DEFAULT_REPORTS_DIR, help="report directory")
     return parser.parse_args(argv)
@@ -142,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         max_spread_cents_cap=args.max_spread,
         min_hours_to_resolution=args.min_hours,
         paper_best_bid=args.paper_best_bid,
+        paper_best_bid_offset=args.paper_best_bid_offset,
     )
 
     journal = Journal(config.journal_path)

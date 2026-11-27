@@ -112,6 +112,7 @@ class RunnerConfig:
     max_markets: int = 4
     min_hours_to_resolution: float = DEFAULT_MIN_HOURS_TO_RESOLUTION
     paper_best_bid: bool = False
+    paper_best_bid_offset: int = 0
 
 
 def _rate_of(row: dict) -> float:
@@ -617,7 +618,9 @@ class Runner:
                 levels = [float(level.get("price") or 0) for level in (book or {}).get("bids") or []]
                 best = max(levels) if levels else 0.0
                 if best > 0.0:
-                    prices[leg] = best
+                    candidate = best + self.runner_config.paper_best_bid_offset * snapshot.tick_size
+                    if snapshot.tick_size <= candidate <= 1.0 - snapshot.tick_size:
+                        prices[leg] = round(candidate, 10)
             if set(prices) != {"up", "down"}:
                 continue
             if prices["up"] + prices["down"] > 1.0 - snapshot.tick_size + 1e-9:
